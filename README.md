@@ -1,2 +1,2 @@
 # nexpanel-worker
-NexPanel Flutter APK Builder — TANZ AI x Prof. KenzMD
+GitHub Actions Flutter build worker — TANZ AI x Prof. KenzMD
