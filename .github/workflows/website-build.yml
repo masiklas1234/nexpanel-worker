@@ -1,0 +1,111 @@
+name: Build Website2APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      website_url:
+        description: 'URL Website'
+        required: true
+        type: string
+      app_name:
+        description: 'Nama Aplikasi'
+        required: true
+        type: string
+      icon_path:
+        description: 'Path icon di repo'
+        required: true
+        type: string
+      build_id:
+        description: 'Build ID unik'
+        required: true
+        type: string
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install ImageMagick
+        run: sudo apt-get update -qq && sudo apt-get install -y imagemagick
+
+      - name: Process Icon
+        run: |
+          ICON_SRC="${{ github.event.inputs.icon_path }}"
+          echo "Icon source: $ICON_SRC"
+          if [ ! -f "$ICON_SRC" ]; then
+            echo "ERROR: Icon file tidak ditemukan: $ICON_SRC"
+            exit 1
+          fi
+          mkdir -p weburl_android/app/src/main/res/mipmap-mdpi
+          mkdir -p weburl_android/app/src/main/res/mipmap-hdpi
+          mkdir -p weburl_android/app/src/main/res/mipmap-xhdpi
+          mkdir -p weburl_android/app/src/main/res/mipmap-xxhdpi
+          mkdir -p weburl_android/app/src/main/res/mipmap-xxxhdpi
+          convert "$ICON_SRC" -resize 48x48   weburl_android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          convert "$ICON_SRC" -resize 72x72   weburl_android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          convert "$ICON_SRC" -resize 96x96   weburl_android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          convert "$ICON_SRC" -resize 144x144 weburl_android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          convert "$ICON_SRC" -resize 192x192 weburl_android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          echo "Icon processed OK"
+
+      - name: Inject App Name dan URL
+        run: |
+          mkdir -p weburl_android/app/src/main/res/values
+          cat > weburl_android/app/src/main/res/values/strings.xml << 'XMLEOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">${{ github.event.inputs.app_name }}</string>
+              <string name="website_url">${{ github.event.inputs.website_url }}</string>
+          </resources>
+          XMLEOF
+          echo "strings.xml OK"
+
+      - name: Build APK
+        working-directory: weburl_android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+
+      - name: Sign APK
+        run: |
+          APK=$(find weburl_android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          if [ -z "$APK" ]; then echo "ERROR: APK tidak ditemukan"; exit 1; fi
+          echo "APK: $APK"
+          keytool -genkey -v -keystore sign.keystore -alias key0 \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass webapk123 -keypass webapk123 \
+            -dname "CN=KenzMD,O=WebUrl2APK,C=MY" -noprompt 2>/dev/null || true
+          BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
+          $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
+            --ks-pass pass:webapk123 --key-pass pass:webapk123 \
+            --out signed.apk "$APK"
+          echo "Sign OK"
+
+      - name: Rename APK
+        run: |
+          SAFE=$(echo "${{ github.event.inputs.app_name }}" | sed 's/[^a-zA-Z0-9_-]/_/g')
+          mv signed.apk "${SAFE}.apk"
+          echo "APK_FILE=${SAFE}.apk" >> $GITHUB_ENV
+          echo "Renamed: ${SAFE}.apk"
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-apk-output
+          path: ${{ env.APK_FILE }}
+          retention-days: 3
