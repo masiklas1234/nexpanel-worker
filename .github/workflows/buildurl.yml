@@ -23,7 +23,7 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout Repository
@@ -44,8 +44,16 @@ jobs:
       - name: Process Icon
         run: |
           ICON="${{ github.event.inputs.icon_path }}"
-          [ ! -f "$ICON" ] && { echo "ERROR: Icon tidak ada: $ICON"; exit 1; }
-          mkdir -p android/app/src/main/res/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}
+          if [ ! -f "$ICON" ]; then
+            echo "ERROR: Icon tidak ada: $ICON"
+            ls _build_temp/ || true
+            exit 1
+          fi
+          mkdir -p android/app/src/main/res/mipmap-mdpi
+          mkdir -p android/app/src/main/res/mipmap-hdpi
+          mkdir -p android/app/src/main/res/mipmap-xhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxhdpi
+          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
           convert "$ICON" -resize 48x48   android/app/src/main/res/mipmap-mdpi/ic_launcher.png
           convert "$ICON" -resize 72x72   android/app/src/main/res/mipmap-hdpi/ic_launcher.png
           convert "$ICON" -resize 96x96   android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
@@ -56,36 +64,45 @@ jobs:
       - name: Inject App Name dan URL
         run: |
           mkdir -p android/app/src/main/res/values
-          cat > android/app/src/main/res/values/strings.xml << 'XMLEOF'
-          <?xml version="1.0" encoding="utf-8"?>
-          <resources>
-              <string name="app_name">${{ github.event.inputs.app_name }}</string>
-              <string name="website_url">${{ github.event.inputs.website_url }}</string>
-          </resources>
-          XMLEOF
-          echo "strings.xml OK"
+          APP_NAME="${{ github.event.inputs.app_name }}"
+          WEBSITE_URL="${{ github.event.inputs.website_url }}"
+          printf '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <string name="app_name">%s</string>\n    <string name="website_url">%s</string>\n</resources>\n' "$APP_NAME" "$WEBSITE_URL" > android/app/src/main/res/values/strings.xml
+          echo "strings.xml OK:"
+          cat android/app/src/main/res/values/strings.xml
 
       - name: Fix local.properties
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
 
-      - name: Download Gradle Wrapper
+      - name: Setup Gradle Wrapper
         run: |
           mkdir -p android/gradle/wrapper
           JAR="android/gradle/wrapper/gradle-wrapper.jar"
-          [ ! -s "$JAR" ] && curl -fsSL -o "$JAR" \
-            "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar"
+          if [ ! -s "$JAR" ]; then
+            curl -fsSL -o "$JAR" "https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradle/wrapper/gradle-wrapper.jar" || \
+            curl -fsSL -o "$JAR" "https://services.gradle.org/distributions/gradle-8.4-bin.zip" --output /dev/null
+          fi
           chmod +x android/gradlew
+          ls -lh android/gradle/wrapper/
+
+      - name: Accept Android Licenses
+        run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
       - name: Build APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --stacktrace 2>&1
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx2g
 
       - name: Sign APK
         run: |
           APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
-          [ -z "$APK" ] && { echo "APK tidak ada!"; exit 1; }
+          if [ -z "$APK" ]; then
+            echo "APK tidak ada! List outputs:"
+            find android/app/build/outputs -type f || true
+            exit 1
+          fi
+          echo "APK ditemukan: $APK"
           keytool -genkey -v -keystore sign.keystore -alias key0 \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android123 -keypass android123 \
@@ -96,6 +113,7 @@ jobs:
             --ks-pass pass:android123 --key-pass pass:android123 \
             --out "${SAFE}.apk" "$APK"
           echo "APK_FILE=${SAFE}.apk" >> $GITHUB_ENV
+          ls -lh "${SAFE}.apk"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -103,3 +121,4 @@ jobs:
           name: apk-output
           path: ${{ env.APK_FILE }}
           retention-days: 3
+          if-no-files-found: error
