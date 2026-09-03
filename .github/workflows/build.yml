@@ -25,58 +25,59 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Verify Flutter
-        run: flutter --version
-
-      - name: Copy source to flutter project root
+      - name: Verify project files
         run: |
-          cp -r src/. .
-          echo "=== Project files ==="
+          ls -la src/ || { echo "ERROR: folder src/ tidak ada"; exit 1; }
+          ls src/pubspec.yaml || { echo "ERROR: pubspec.yaml tidak ada"; exit 1; }
+          echo "✅ Project files OK"
+
+      - name: Copy source to project root
+        run: |
+          cp -rf src/. .
+          echo "=== Files after copy ==="
           ls -la
+          ls lib/
 
       - name: Fix local.properties
         run: |
+          FLUTTER_PATH=$(which flutter | sed "s|/bin/flutter||")
           echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
-          echo "flutter.sdk=$(which flutter | sed s/\/bin\/flutter//)" >> android/local.properties
+          echo "flutter.sdk=$FLUTTER_PATH" >> android/local.properties
+          echo "ndk.dir=$ANDROID_NDK_ROOT" >> android/local.properties
+          echo "✅ local.properties:"
           cat android/local.properties
+
+      - name: Accept Android Licenses
+        run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Compress video asset (jimat ~60% tanpa affect fungsi)
+      - name: Compress video asset
         run: |
           SRC="android/app/src/main/assets/overlay_video.mp4"
           if [ -f "$SRC" ]; then
-            ORIG=$(du -sh "$SRC" | cut -f1)
             sudo apt-get install -y ffmpeg -qq 2>/dev/null || true
             if command -v ffmpeg &>/dev/null; then
+              ORIG=$(du -sh "$SRC" | cut -f1)
               ffmpeg -i "$SRC" -vcodec libx264 -crf 28 -preset fast \
-                -acodec aac -b:a 64k -y /tmp/video_compressed.mp4 2>/dev/null
-              if [ -s /tmp/video_compressed.mp4 ]; then
-                cp /tmp/video_compressed.mp4 "$SRC"
-                NEW=$(du -sh "$SRC" | cut -f1)
-                echo "✅ Video compressed: $ORIG → $NEW"
-              fi
-            else
-              echo "ffmpeg tidak ada — skip compress video"
+                -acodec aac -b:a 64k -y /tmp/vid.mp4 2>/dev/null
+              [ -s /tmp/vid.mp4 ] && cp /tmp/vid.mp4 "$SRC" && NEW=$(du -sh "$SRC" | cut -f1)
+              echo "Video: $ORIG → $NEW"
             fi
           fi
 
-      - name: Compress PNG icons (jimat ruang tanpa affect visual)
+      - name: Compress PNG icons
         run: |
           sudo apt-get install -y optipng -qq 2>/dev/null || true
-          if command -v optipng &>/dev/null; then
-            find android/app/src/main/res -name "*.png" -exec optipng -o5 -quiet {} \;
-            echo "✅ Icons compressed"
-          else
-            echo "optipng tidak ada — skip"
-          fi
+          command -v optipng &>/dev/null && \
+            find android/app/src/main/res -name "*.png" -exec optipng -o5 -quiet {} \; || true
+          echo "Icons compressed"
 
-      - name: Enable minify + shrink resources di build.gradle
+      - name: Enable minify dan shrink
         run: |
           sed -i "s/minifyEnabled false/minifyEnabled true/" android/app/build.gradle || true
           sed -i "s/shrinkResources false/shrinkResources true/" android/app/build.gradle || true
-          echo "✅ build.gradle:"
           grep -E "minify|shrink" android/app/build.gradle || echo "(sudah enabled)"
 
       - name: Build Flutter APK split-per-abi
@@ -87,11 +88,10 @@ jobs:
             --obfuscate \
             --split-debug-info=build/debug_info \
             --tree-shake-icons
-          echo ""
-          echo "=== APK output ==="
+          echo "=== APK Files ==="
           find build/app/outputs -name "*.apk" -exec ls -lh {} \;
 
-      - name: Sign APK
+      - name: Sign all APKs
         run: |
           keytool -genkey -v -keystore sign.keystore -alias key0 \
             -keyalg RSA -keysize 2048 -validity 10000 \
@@ -100,13 +100,16 @@ jobs:
           BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
           mkdir -p signed_apks
           for APK in $(find build/app/outputs -name "*.apk"); do
-            BASENAME=$(basename "$APK" .apk)
-            OUTFILE="signed_apks/NexPanel_${BASENAME}.apk"
+            ABI=$(echo "$APK" | grep -oP "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
+            OUTFILE="signed_apks/NexPanel_${ABI}.apk"
             $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
               --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
               --out "$OUTFILE" "$APK"
-            echo "Signed: $OUTFILE ($(du -sh $OUTFILE | cut -f1))"
+            echo "✅ Signed: $OUTFILE ($(du -sh $OUTFILE | cut -f1))"
           done
+          echo ""
+          echo "=== Final signed APKs ==="
+          ls -lh signed_apks/
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
