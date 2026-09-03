@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Izinkan HTTP untuk backend server -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">denisrespanel.pteroq.xyz</domain>
+    </domain-config>
+</network-security-config>
