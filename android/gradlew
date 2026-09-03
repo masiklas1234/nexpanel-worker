@@ -1,2 +1,16 @@
-#!/bin/sh
-exec gradle "$@"
+#!/usr/bin/env sh
+
+##############################################################################
+## Gradle start up script for UN*X
+##############################################################################
+
+APP_NAME="Gradle"
+APP_BASE_NAME=`basename "$0"`
+
+APP_HOME="`pwd -P`"
+cd "`dirname \"$0\"`"
+APP_HOME="`pwd -P`"
+cd "$SAVED" >/dev/null
+
+exec "$JAVACMD" "$@" -classpath "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" \
+  org.gradle.wrapper.GradleWrapperMain "$@"
