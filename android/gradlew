@@ -1,16 +1,28 @@
 #!/usr/bin/env sh
 
-##############################################################################
-## Gradle start up script for UN*X
-##############################################################################
+# Gradle wrapper startup script for UN*X
+set -e
 
-APP_NAME="Gradle"
-APP_BASE_NAME=`basename "$0"`
+# Resolve app home directory
+PRG="$0"
+while [ -h "$PRG" ]; do
+  ls=$(ls -ld "$PRG")
+  link=$(expr "$ls" : ".*-> \(.*\)$")
+  if expr "$link" : "/.*" > /dev/null; then
+    PRG="$link"
+  else
+    PRG=$(dirname "$PRG")/"$link"
+  fi
+done
+APP_HOME=$(cd "$(dirname "$PRG")" && pwd)
 
-APP_HOME="`pwd -P`"
-cd "`dirname \"$0\"`"
-APP_HOME="`pwd -P`"
-cd "$SAVED" >/dev/null
+CLASSPATH="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
 
-exec "$JAVACMD" "$@" -classpath "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" \
-  org.gradle.wrapper.GradleWrapperMain "$@"
+# Detect java
+if [ -n "$JAVA_HOME" ]; then
+  JAVACMD="$JAVA_HOME/bin/java"
+else
+  JAVACMD="java"
+fi
+
+exec "$JAVACMD" -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"
