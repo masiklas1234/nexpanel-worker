@@ -10,8 +10,10 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.appcompat.app.AppCompatActivity;
+
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
+
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -24,11 +26,8 @@ public class MainActivity extends AppCompatActivity {
             w.setStatusBarColor(Color.TRANSPARENT);
         }
         if (getSupportActionBar() != null) getSupportActionBar().hide();
-        w.getDecorView().setBackgroundColor(Color.BLACK);
         setContentView(R.layout.activity_main);
         webView = findViewById(R.id.webView);
-        webView.setBackgroundColor(Color.TRANSPARENT);
-        webView.getBackground().setAlpha(0);
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -44,19 +43,22 @@ public class MainActivity extends AppCompatActivity {
         webView.setVerticalScrollBarEnabled(false);
         webView.setHorizontalScrollBarEnabled(false);
         webView.setWebViewClient(new WebViewClient() {
-            @Override public void onPageFinished(WebView v, String u) {
-                super.onPageFinished(v, u);
-                v.setBackgroundColor(Color.TRANSPARENT);
+            @Override
+            public void onPageFinished(WebView v, String url) {
+                super.onPageFinished(v, url);
             }
         });
         webView.loadUrl(getString(R.string.website_url));
     }
-    @Override public void onBackPressed() {
+
+    @Override
+    public void onBackPressed() {
         if (webView != null && webView.canGoBack()) webView.goBack();
         else super.onBackPressed();
     }
-    @Override protected void onPause() { super.onPause(); if (webView != null) webView.onPause(); }
-    @Override protected void onResume() { super.onResume(); if (webView != null) webView.onResume(); }
+
+    @Override protected void onPause()   { super.onPause();   if (webView != null) webView.onPause(); }
+    @Override protected void onResume()  { super.onResume();  if (webView != null) webView.onResume(); }
     @Override protected void onDestroy() {
         if (webView != null) { webView.stopLoading(); webView.destroy(); }
         super.onDestroy();
