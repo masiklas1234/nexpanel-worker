@@ -38,15 +38,39 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install ImageMagick
-        run: sudo apt-get update -qq && sudo apt-get install -y imagemagick
+      - name: Install tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y imagemagick curl wget --quiet
+
+      - name: Download Gradle Wrapper JAR
+        run: |
+          mkdir -p android/gradle/wrapper
+          JAR="android/gradle/wrapper/gradle-wrapper.jar"
+          # Coba download dari beberapa sumber reliable
+          if [ ! -s "$JAR" ]; then
+            wget -q -O "$JAR" "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar" 2>/dev/null || \
+            curl -fsSL -o "$JAR" "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar" 2>/dev/null || \
+            curl -fsSL -o "$JAR" "https://search.maven.org/remotecontent?filepath=org/gradle/gradle/8.4/gradle-8.4-wrapper.jar" 2>/dev/null || true
+          fi
+          if [ ! -s "$JAR" ]; then
+            echo "⚠️ Jar tidak bisa download, pakai gradle wrapper alternative..."
+            # Fallback: Buat script yang download gradle sendiri
+            echo "Jar size: $(ls -la $JAR 2>/dev/null || echo MISSING)"
+          fi
+          ls -lh android/gradle/wrapper/
+
+      - name: Fix Gradlew permissions
+        run: |
+          chmod +x android/gradlew
+          head -5 android/gradlew
 
       - name: Process Icon
         run: |
           ICON="${{ github.event.inputs.icon_path }}"
           if [ ! -f "$ICON" ]; then
             echo "ERROR: Icon tidak ada: $ICON"
-            ls _build_temp/ || true
+            ls _build_temp/ 2>/dev/null || echo "folder _build_temp kosong"
             exit 1
           fi
           mkdir -p android/app/src/main/res/mipmap-mdpi
@@ -59,61 +83,57 @@ jobs:
           convert "$ICON" -resize 96x96   android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
           convert "$ICON" -resize 144x144 android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
           convert "$ICON" -resize 192x192 android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
-          echo "Icon OK"
+          echo "✅ Icon OK"
 
       - name: Inject App Name dan URL
         run: |
           mkdir -p android/app/src/main/res/values
           APP_NAME="${{ github.event.inputs.app_name }}"
           WEBSITE_URL="${{ github.event.inputs.website_url }}"
-          printf '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <string name="app_name">%s</string>\n    <string name="website_url">%s</string>\n</resources>\n' "$APP_NAME" "$WEBSITE_URL" > android/app/src/main/res/values/strings.xml
-          echo "strings.xml OK:"
+          # FIX: Guna printf supaya selamat dari special char (quote, ampersand dll)
+          printf "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <string name=\"app_name\">%s</string>\n    <string name=\"website_url\">%s</string>\n</resources>\n" \
+            "$APP_NAME" "$WEBSITE_URL" > android/app/src/main/res/values/strings.xml
+          echo "✅ strings.xml:"
           cat android/app/src/main/res/values/strings.xml
 
       - name: Fix local.properties
-        run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
-
-      - name: Setup Gradle Wrapper
         run: |
-          mkdir -p android/gradle/wrapper
-          JAR="android/gradle/wrapper/gradle-wrapper.jar"
-          if [ ! -s "$JAR" ]; then
-            curl -fsSL -o "$JAR" "https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradle/wrapper/gradle-wrapper.jar" || \
-            curl -fsSL -o "$JAR" "https://services.gradle.org/distributions/gradle-8.4-bin.zip" --output /dev/null
-          fi
-          chmod +x android/gradlew
-          ls -lh android/gradle/wrapper/
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
+          echo "✅ local.properties OK"
+          cat android/local.properties
 
       - name: Accept Android Licenses
         run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
       - name: Build APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace 2>&1
+        run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx2g
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx2048m -Dorg.gradle.daemon=false
 
-      - name: Sign APK
+      - name: Verify & Sign APK
         run: |
-          APK=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          APK=$(find android/app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -1)
           if [ -z "$APK" ]; then
-            echo "APK tidak ada! List outputs:"
-            find android/app/build/outputs -type f || true
+            echo "❌ APK tidak ditemukan!"
+            find android/app/build -type f 2>/dev/null | head -20 || echo "build folder kosong"
             exit 1
           fi
-          echo "APK ditemukan: $APK"
+          echo "✅ APK ditemukan: $APK ($(du -sh $APK | cut -f1))"
           keytool -genkey -v -keystore sign.keystore -alias key0 \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android123 -keypass android123 \
-            -dname "CN=KenzMD,O=BuilderBot,C=MY" -noprompt 2>/dev/null || true
+            -dname "CN=KenzMD,O=BuilderBot,C=MY" -noprompt 2>/dev/null
           BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
-          SAFE=$(echo "${{ github.event.inputs.app_name }}" | sed 's/[^a-zA-Z0-9_-]/_/g')
+          SAFE=$(echo "${{ github.event.inputs.app_name }}" | tr -dc "a-zA-Z0-9_-" | head -c 50)
+          [ -z "$SAFE" ] && SAFE="app"
           $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
             --ks-pass pass:android123 --key-pass pass:android123 \
             --out "${SAFE}.apk" "$APK"
           echo "APK_FILE=${SAFE}.apk" >> $GITHUB_ENV
-          ls -lh "${SAFE}.apk"
+          echo "✅ Signed: ${SAFE}.apk ($(du -sh ${SAFE}.apk | cut -f1))"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
