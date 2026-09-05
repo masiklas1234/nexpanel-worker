@@ -10,31 +10,26 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.appcompat.app.AppCompatActivity;
-
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
-
     @SuppressLint("SetJavaScriptEnabled")
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Window w = getWindow();
         w.requestFeature(Window.FEATURE_NO_TITLE);
         w.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         w.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            w.setStatusBarColor(Color.TRANSPARENT);
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) w.setStatusBarColor(Color.TRANSPARENT);
         if (getSupportActionBar() != null) getSupportActionBar().hide();
+        w.getDecorView().setBackgroundColor(Color.BLACK);
         setContentView(R.layout.activity_main);
         webView = findViewById(R.id.webView);
+        webView.setBackgroundColor(Color.TRANSPARENT);
+        webView.getBackground().setAlpha(0);
         WebSettings s = webView.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setBuiltInZoomControls(false);
-        s.setSupportZoom(false);
+        s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true);
+        s.setLoadWithOverviewMode(true); s.setUseWideViewPort(true);
+        s.setBuiltInZoomControls(false); s.setSupportZoom(false);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
@@ -43,24 +38,15 @@ public class MainActivity extends AppCompatActivity {
         webView.setVerticalScrollBarEnabled(false);
         webView.setHorizontalScrollBarEnabled(false);
         webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public void onPageFinished(WebView v, String url) {
-                super.onPageFinished(v, url);
-            }
+            @Override public void onPageFinished(WebView v, String u) {
+                super.onPageFinished(v, u); v.setBackgroundColor(Color.TRANSPARENT); }
         });
         webView.loadUrl(getString(R.string.website_url));
     }
-
-    @Override
-    public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
-    }
-
-    @Override protected void onPause()   { super.onPause();   if (webView != null) webView.onPause(); }
-    @Override protected void onResume()  { super.onResume();  if (webView != null) webView.onResume(); }
+    @Override public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) webView.goBack(); else super.onBackPressed(); }
+    @Override protected void onPause() { super.onPause(); if (webView != null) webView.onPause(); }
+    @Override protected void onResume() { super.onResume(); if (webView != null) webView.onResume(); }
     @Override protected void onDestroy() {
-        if (webView != null) { webView.stopLoading(); webView.destroy(); }
-        super.onDestroy();
-    }
+        if (webView != null) { webView.stopLoading(); webView.destroy(); } super.onDestroy(); }
 }
