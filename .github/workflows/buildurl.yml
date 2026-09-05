@@ -63,8 +63,6 @@ jobs:
 
       - name: Inject App Name dan URL
         run: |
-          APP_NAME="${{ github.event.inputs.app_name }}"
-          WEBSITE_URL="${{ github.event.inputs.website_url }}"
           mkdir -p android/app/src/main/res/values
           python3 << 'PYEOF'
           import html
@@ -91,30 +89,14 @@ jobs:
       - name: Fix local.properties
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
 
-      - name: Setup Gradle Wrapper
-        run: |
-          mkdir -p android/gradle/wrapper
-          curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar \
-            "https://repo1.maven.org/maven2/org/gradle/gradle-wrapper/8.4/gradle-wrapper-8.4.jar" \
-            || curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar \
-            "https://github.com/gradle/gradle/raw/refs/tags/v8.4.0/gradle/wrapper/gradle-wrapper.jar"
-          ls -lh android/gradle/wrapper/gradle-wrapper.jar
-          printf '%s\n' \
-            '#!/bin/sh' \
-            'APP_HOME="$(cd "$(dirname "$0")" && pwd)"' \
-            'exec java -jar "$APP_HOME/gradle/wrapper/gradle-wrapper.jar" "$@"' \
-            > android/gradlew
-          chmod +x android/gradlew
-          echo "=== gradlew content ==="
-          cat android/gradlew
-          echo "Gradle wrapper OK"
-
       - name: Accept Android Licenses
         run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
-      - name: Build APK
+      - name: Build APK (pakai Gradle bawaan runner)
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: |
+          gradle --version
+          gradle assembleRelease --no-daemon --stacktrace
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
 
