@@ -27,25 +27,27 @@ jobs:
 
       - name: Verify project files
         run: |
-          ls -la src/ || { echo "ERROR: src/ tidak ada"; exit 1; }
+          ls -la src/ || { echo "ERROR: folder src/ tidak ada"; exit 1; }
           ls src/pubspec.yaml || { echo "ERROR: pubspec.yaml tidak ada"; exit 1; }
-          echo "Project files OK"
+          echo "✅ Project files OK"
 
       - name: Copy source to project root
         run: |
+          # FIX: Bersihkan android/ root dulu (mungkin sisa project WebView /buildurl)
+          rm -rf android
           cp -rf src/. .
-          echo "=== Files ==="
+          echo "=== Files after copy ==="
           ls -la
+          ls lib/
 
       - name: Fix local.properties
         run: |
           FLUTTER_PATH=$(which flutter | sed "s|/bin/flutter||")
           echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
           echo "flutter.sdk=$FLUTTER_PATH" >> android/local.properties
+          echo "ndk.dir=$ANDROID_NDK_ROOT" >> android/local.properties
+          echo "✅ local.properties:"
           cat android/local.properties
-
-      - name: Fix Gradle permissions
-        run: chmod +x android/gradlew 2>/dev/null || true
 
       - name: Accept Android Licenses
         run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
@@ -53,7 +55,7 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Compress video asset (kecilkan APK tanpa affect fungsi)
+      - name: Compress video asset
         run: |
           SRC="android/app/src/main/assets/overlay_video.mp4"
           if [ -f "$SRC" ]; then
@@ -61,17 +63,24 @@ jobs:
             if command -v ffmpeg &>/dev/null; then
               ORIG=$(du -sh "$SRC" | cut -f1)
               ffmpeg -i "$SRC" -vcodec libx264 -crf 28 -preset fast \
-                -acodec aac -b:a 64k -y /tmp/vid.mp4 2>/dev/null && \
-              [ -s /tmp/vid.mp4 ] && cp /tmp/vid.mp4 "$SRC"
-              echo "Video: $ORIG → $(du -sh $SRC | cut -f1)"
+                -acodec aac -b:a 64k -y /tmp/vid.mp4 2>/dev/null
+              [ -s /tmp/vid.mp4 ] && cp /tmp/vid.mp4 "$SRC" && NEW=$(du -sh "$SRC" | cut -f1)
+              echo "Video: $ORIG → $NEW"
             fi
           fi
 
-      - name: Enable minify dan shrink (kecilkan APK)
+      - name: Compress PNG icons
+        run: |
+          sudo apt-get install -y optipng -qq 2>/dev/null || true
+          command -v optipng &>/dev/null && \
+            find android/app/src/main/res -name "*.png" -exec optipng -o5 -quiet {} \; || true
+          echo "Icons compressed"
+
+      - name: Enable minify dan shrink
         run: |
           sed -i "s/minifyEnabled false/minifyEnabled true/" android/app/build.gradle || true
           sed -i "s/shrinkResources false/shrinkResources true/" android/app/build.gradle || true
-          grep -E "minify|shrink" android/app/build.gradle || echo "OK"
+          grep -E "minify|shrink" android/app/build.gradle || echo "(sudah enabled)"
 
       - name: Build Flutter APK split-per-abi
         run: |
@@ -81,10 +90,10 @@ jobs:
             --obfuscate \
             --split-debug-info=build/debug_info \
             --tree-shake-icons
-          echo "=== APK ==="
+          echo "=== APK Files ==="
           find build/app/outputs -name "*.apk" -exec ls -lh {} \;
 
-      - name: Sign APK
+      - name: Sign all APKs
         run: |
           keytool -genkey -v -keystore sign.keystore -alias key0 \
             -keyalg RSA -keysize 2048 -validity 10000 \
@@ -94,12 +103,15 @@ jobs:
           mkdir -p signed_apks
           for APK in $(find build/app/outputs -name "*.apk"); do
             ABI=$(echo "$APK" | grep -oP "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
-            OUT="signed_apks/NexPanel_${ABI}.apk"
+            OUTFILE="signed_apks/NexPanel_${ABI}.apk"
             $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
               --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
-              --out "$OUT" "$APK"
-            echo "✅ Signed: $OUT ($(du -sh $OUT | cut -f1))"
+              --out "$OUTFILE" "$APK"
+            echo "✅ Signed: $OUTFILE ($(du -sh $OUTFILE | cut -f1))"
           done
+          echo ""
+          echo "=== Final signed APKs ==="
+          ls -lh signed_apks/
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
