@@ -5,4 +5,4 @@
 // Semua file dart otomatis pakai URL ini — cukup ubah 1 baris.
 // ============================================================
 
-const String apiBaseUrl = "http://hanz-cpanel-private.pteroq.biz.id:10874";
+const String apiBaseUrl = "http://capekerjaoiiiipanel.myserverr.web.id:2140";
