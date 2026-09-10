@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "69944224620",
+    "project_id": "lunex-project",
+    "storage_bucket": "lunex-project.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:69944224620:android:ad66628cd2a2fc3dcb6149",
+        "android_client_info": {
+          "package_name": "com.dark.nevox"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAWUOQ745OT-rwbEHbs932m4u4isTDbEO8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
