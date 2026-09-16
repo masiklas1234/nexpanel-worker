@@ -37,6 +37,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
       - name: Install ImageMagick
         run: sudo apt-get update -qq && sudo apt-get install -y imagemagick
