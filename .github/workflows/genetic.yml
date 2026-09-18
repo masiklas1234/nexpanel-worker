@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Verify genetic source
         run: |
@@ -29,6 +31,8 @@ jobs:
             echo "ERROR: genetic/android/ tidak ditemukan!"
             exit 1
           fi
+          echo "=== android/ structure ==="
+          ls -la genetic/android/
           echo "Genetic source OK"
 
       - name: Set up JDK 17
@@ -36,6 +40,7 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -47,9 +52,25 @@ jobs:
 
       - name: Setup Gradle Wrapper
         run: |
-          curl -L -o genetic/android/gradle/wrapper/gradle-wrapper.jar \
-            "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar"
+          WRAPPER_DIR="genetic/android/gradle/wrapper"
+          mkdir -p "$WRAPPER_DIR"
+          # FIX: download gradle-wrapper.jar dari sumber resmi Gradle
+          curl -fsSL -o "$WRAPPER_DIR/gradle-wrapper.jar" \
+            "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+          # Pastikan gradle-wrapper.properties ada dan pakai Gradle 8.7
+          if [ ! -f "$WRAPPER_DIR/gradle-wrapper.properties" ]; then
+            echo "distributionBase=GRADLE_USER_HOME" > "$WRAPPER_DIR/gradle-wrapper.properties"
+            echo "distributionPath=wrapper/dists" >> "$WRAPPER_DIR/gradle-wrapper.properties"
+            echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip" >> "$WRAPPER_DIR/gradle-wrapper.properties"
+            echo "zipStoreBase=GRADLE_USER_HOME" >> "$WRAPPER_DIR/gradle-wrapper.properties"
+            echo "zipStorePath=wrapper/dists" >> "$WRAPPER_DIR/gradle-wrapper.properties"
+            echo "gradle-wrapper.properties dibuat (versi 8.7)"
+          else
+            echo "gradle-wrapper.properties sudah ada:"
+            cat "$WRAPPER_DIR/gradle-wrapper.properties"
+          fi
           chmod +x genetic/android/gradlew
+          echo "gradlew executable: OK"
 
       - name: Generate App Icons
         working-directory: genetic
@@ -66,20 +87,45 @@ jobs:
           echo "sdk.dir=$ANDROID_SDK_ROOT" > genetic/android/local.properties
           cat genetic/android/local.properties
 
+      - name: Fix gradle.properties
+        run: |
+          GPROPS="genetic/android/gradle.properties"
+          # Set JVM args dan non-transitive R class jika belum ada
+          grep -q "org.gradle.jvmargs" "$GPROPS" 2>/dev/null || \
+            echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" >> "$GPROPS"
+          grep -q "android.useAndroidX" "$GPROPS" 2>/dev/null || \
+            echo "android.useAndroidX=true" >> "$GPROPS"
+          grep -q "android.enableJetifier" "$GPROPS" 2>/dev/null || \
+            echo "android.enableJetifier=true" >> "$GPROPS"
+          echo "=== gradle.properties ==="
+          cat "$GPROPS"
+
       - name: Accept Android Licenses
         run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
       - name: Build Release APK
         working-directory: genetic/android
-        run: ./gradlew assembleRelease --no-daemon
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2048m"
+        run: |
+          echo "=== Gradle version ==="
+          ./gradlew --version
+          echo "=== Start assembleRelease ==="
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tail -100
+          BUILD_EXIT=${PIPESTATUS[0]}
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "ERROR: Gradle assembleRelease gagal dengan exit code $BUILD_EXIT"
+            exit $BUILD_EXIT
+          fi
 
       - name: Rename & collect APK
         run: |
           mkdir -p output
           APK=$(find genetic/android/app/build/outputs/apk/release/ -name "*.apk" | head -1)
           if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan!"
-            find genetic/android/app/build/outputs -type f 2>/dev/null || true
+            echo "ERROR: APK tidak ditemukan setelah build!"
+            echo "=== Build outputs ==="
+            find genetic/android/app/build/outputs -type f 2>/dev/null || echo "Folder outputs tidak ada"
             exit 1
           fi
           cp "$APK" output/Genetic.apk
