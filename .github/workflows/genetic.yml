@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     permissions:
       contents: read
       actions: write
@@ -22,17 +22,21 @@ jobs:
           echo "=== Root files ==="
           ls -la
           if [ ! -d "genetic" ]; then
-            echo "ERROR: folder genetic/ tidak ditemukan di root repo!"
+            echo "ERROR: folder genetic/ tidak ada di root repo"
             exit 1
           fi
-          echo "=== genetic/ ==="
-          ls -la genetic/
           if [ ! -d "genetic/android" ]; then
-            echo "ERROR: genetic/android/ tidak ditemukan!"
+            echo "ERROR: genetic/android/ tidak ada"
             exit 1
           fi
-          echo "=== android/ structure ==="
+          if [ ! -f "genetic/android/app/build.gradle" ]; then
+            echo "ERROR: genetic/android/app/build.gradle tidak ada"
+            exit 1
+          fi
+          echo "=== genetic/android/ ==="
           ls -la genetic/android/
+          echo "=== genetic/android/app/ ==="
+          ls -la genetic/android/app/
           echo "Genetic source OK"
 
       - name: Set up JDK 17
@@ -48,49 +52,130 @@ jobs:
           python-version: '3.11'
 
       - name: Install Pillow
-        run: pip install Pillow
+        run: pip install Pillow --quiet
 
-      - name: Setup Gradle Wrapper
+      - name: Bootstrap Gradle Wrapper
         run: |
           WRAPPER_DIR="genetic/android/gradle/wrapper"
           mkdir -p "$WRAPPER_DIR"
-          # FIX: download gradle-wrapper.jar dari sumber resmi Gradle
-          curl -fsSL -o "$WRAPPER_DIR/gradle-wrapper.jar" \
-            "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
-          # Pastikan gradle-wrapper.properties ada dan pakai Gradle 8.7
-          if [ ! -f "$WRAPPER_DIR/gradle-wrapper.properties" ]; then
-            echo "distributionBase=GRADLE_USER_HOME" > "$WRAPPER_DIR/gradle-wrapper.properties"
-            echo "distributionPath=wrapper/dists" >> "$WRAPPER_DIR/gradle-wrapper.properties"
-            echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.7-bin.zip" >> "$WRAPPER_DIR/gradle-wrapper.properties"
-            echo "zipStoreBase=GRADLE_USER_HOME" >> "$WRAPPER_DIR/gradle-wrapper.properties"
-            echo "zipStorePath=wrapper/dists" >> "$WRAPPER_DIR/gradle-wrapper.properties"
-            echo "gradle-wrapper.properties dibuat (versi 8.7)"
+
+          # Cek apakah gradle binary tersedia di runner
+          if command -v gradle &>/dev/null; then
+            GRADLE_BIN="gradle"
+            echo "Gradle system ditemukan: $(gradle --version | head -1)"
           else
-            echo "gradle-wrapper.properties sudah ada:"
-            cat "$WRAPPER_DIR/gradle-wrapper.properties"
+            # Install gradle via SDKMAN jika tidak ada
+            curl -s "https://get.sdkman.io" | bash || true
+            source "$HOME/.sdkman/bin/sdkman-init.sh" 2>/dev/null || true
+            sdk install gradle 8.4 2>/dev/null || true
+            GRADLE_BIN="$HOME/.sdkman/candidates/gradle/current/bin/gradle"
           fi
+
+          # Generate gradle wrapper jar menggunakan gradle wrapper task
+          cd genetic/android
+          if [ -n "$GRADLE_BIN" ] && command -v "$GRADLE_BIN" &>/dev/null; then
+            "$GRADLE_BIN" wrapper --gradle-version 8.4 --distribution-type bin 2>/dev/null || true
+          fi
+
+          # Fallback: download jar langsung dari Maven Central (reliable)
+          if [ ! -f "$WRAPPER_DIR/gradle-wrapper.jar" ] || [ ! -s "$WRAPPER_DIR/gradle-wrapper.jar" ]; then
+            echo "Download gradle-wrapper.jar dari Maven Central..."
+            cd /
+            curl -fsSL -o /tmp/gradle-wrapper.jar \
+              "https://repo1.maven.org/maven2/org/gradle/gradle-wrapper/8.4/gradle-wrapper-8.4.jar" \
+              || curl -fsSL -o /tmp/gradle-wrapper.jar \
+              "https://repo.maven.apache.org/maven2/org/gradle/gradle-wrapper/8.4/gradle-wrapper-8.4.jar" \
+              || true
+            if [ -s /tmp/gradle-wrapper.jar ]; then
+              cp /tmp/gradle-wrapper.jar "$WRAPPER_DIR/gradle-wrapper.jar"
+            fi
+          fi
+
+          # Verifikasi jar ada dan tidak kosong
+          if [ ! -f "genetic/android/gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "genetic/android/gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "WARN: gradle-wrapper.jar tidak berhasil di-download, coba cara lain..."
+            # Cara terakhir: unzip gradle dist dan ambil jar dari sana
+            curl -fsSL -o /tmp/gradle-dist.zip \
+              "https://services.gradle.org/distributions/gradle-8.4-bin.zip"
+            unzip -q /tmp/gradle-dist.zip -d /tmp/gradle-dist/
+            JAR=$(find /tmp/gradle-dist -name "gradle-wrapper.jar" | head -1)
+            if [ -n "$JAR" ]; then
+              cp "$JAR" "genetic/android/gradle/wrapper/gradle-wrapper.jar"
+              echo "gradle-wrapper.jar berhasil diambil dari dist zip"
+            else
+              echo "ERROR FATAL: tidak bisa mendapatkan gradle-wrapper.jar"
+              exit 1
+            fi
+          fi
+
+          # Pastikan gradle-wrapper.properties pakai versi yang sesuai project (8.4)
+          echo "distributionBase=GRADLE_USER_HOME" > "genetic/android/gradle/wrapper/gradle-wrapper.properties"
+          echo "distributionPath=wrapper/dists" >> "genetic/android/gradle/wrapper/gradle-wrapper.properties"
+          echo "distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip" >> "genetic/android/gradle/wrapper/gradle-wrapper.properties"
+          echo "zipStoreBase=GRADLE_USER_HOME" >> "genetic/android/gradle/wrapper/gradle-wrapper.properties"
+          echo "zipStorePath=wrapper/dists" >> "genetic/android/gradle/wrapper/gradle-wrapper.properties"
+
+          # Set gradlew executable
           chmod +x genetic/android/gradlew
-          echo "gradlew executable: OK"
+          echo "=== Wrapper setup selesai ==="
+          ls -lh genetic/android/gradle/wrapper/
 
       - name: Generate App Icons
         working-directory: genetic
         run: |
           if [ -f "generate_icons.py" ]; then
             python3 generate_icons.py
-            echo "Icons generated"
+            echo "=== Mipmap yang dibuat ==="
+            ls -la android/app/src/main/res/ | grep mipmap || echo "WARN: folder mipmap tidak ditemukan!"
           else
-            echo "generate_icons.py tidak ada — skip icon generation"
+            echo "generate_icons.py tidak ada — buat mipmap placeholder manual"
           fi
+
+      - name: Ensure mipmap icons exist
+        run: |
+          RES_DIR="genetic/android/app/src/main/res"
+          NEED_ICONS=false
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            if [ ! -f "$RES_DIR/mipmap-$density/ic_launcher.png" ]; then
+              NEED_ICONS=true
+              break
+            fi
+          done
+
+          if [ "$NEED_ICONS" = "true" ]; then
+            echo "Mipmap belum ada — generate placeholder dengan Python..."
+            python3 - <<'PYEOF'
+import os
+from PIL import Image, ImageDraw
+sizes = {"mdpi":48,"hdpi":72,"xhdpi":96,"xxhdpi":144,"xxxhdpi":192}
+base = "genetic/android/app/src/main/res"
+names = ["ic_launcher","ic_launcher_round",
+         "ic_theme_whatsapp","ic_theme_youtube","ic_theme_instagram",
+         "ic_theme_telegram","ic_theme_xnxx"]
+for density, size in sizes.items():
+    out_dir = f"{base}/mipmap-{density}"
+    os.makedirs(out_dir, exist_ok=True)
+    for name in names:
+        icon = Image.new("RGB", (size, size), (8, 12, 16))
+        draw = ImageDraw.Draw(icon)
+        draw.ellipse([size//4, size//4, 3*size//4, 3*size//4], fill=(0,212,255))
+        icon.save(f"{out_dir}/{name}.png", "PNG")
+print("Placeholder icons created")
+PYEOF
+          fi
+          echo "=== Final mipmap check ==="
+          ls "$RES_DIR/" | grep mipmap
+          ls "$RES_DIR/mipmap-xxhdpi/"
 
       - name: Fix local.properties
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > genetic/android/local.properties
+          echo "=== local.properties ==="
           cat genetic/android/local.properties
 
       - name: Fix gradle.properties
         run: |
           GPROPS="genetic/android/gradle.properties"
-          # Set JVM args dan non-transitive R class jika belum ada
           grep -q "org.gradle.jvmargs" "$GPROPS" 2>/dev/null || \
             echo "org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8" >> "$GPROPS"
           grep -q "android.useAndroidX" "$GPROPS" 2>/dev/null || \
@@ -106,30 +191,24 @@ jobs:
       - name: Build Release APK
         working-directory: genetic/android
         env:
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2048m"
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8"
         run: |
-          echo "=== Gradle version ==="
+          echo "=== Gradle wrapper version ==="
           ./gradlew --version
           echo "=== Start assembleRelease ==="
-          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tail -100
-          BUILD_EXIT=${PIPESTATUS[0]}
-          if [ $BUILD_EXIT -ne 0 ]; then
-            echo "ERROR: Gradle assembleRelease gagal dengan exit code $BUILD_EXIT"
-            exit $BUILD_EXIT
-          fi
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Rename & collect APK
         run: |
           mkdir -p output
           APK=$(find genetic/android/app/build/outputs/apk/release/ -name "*.apk" | head -1)
           if [ -z "$APK" ]; then
-            echo "ERROR: APK tidak ditemukan setelah build!"
-            echo "=== Build outputs ==="
+            echo "ERROR: APK tidak ditemukan!"
             find genetic/android/app/build/outputs -type f 2>/dev/null || echo "Folder outputs tidak ada"
             exit 1
           fi
           cp "$APK" output/Genetic.apk
-          echo "APK: $(du -sh output/Genetic.apk | cut -f1)"
+          echo "APK siap: $(du -sh output/Genetic.apk | cut -f1)"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
