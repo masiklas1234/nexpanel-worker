@@ -71,43 +71,9 @@ jobs:
 
       - name: Enable minify dan shrink (kecilkan APK)
         run: |
-          python3 << 'PYEOF'
-          import os, re
-          candidates = ["android/app/build.gradle", "android/app/build.gradle.kts"]
-          target = next((p for p in candidates if os.path.isfile(p)), None)
-          if not target:
-              print("⚠️  build.gradle(.kts) tidak ditemukan — skip")
-          else:
-              with open(target, "r", encoding="utf-8") as f:
-                  content = f.read()
-              is_kts = target.endswith(".kts")
-              if is_kts:
-                  content2 = re.sub(r"isMinifyEnabled\s*=\s*false", "isMinifyEnabled = true", content)
-                  content2 = re.sub(r"isShrinkResources\s*=\s*false", "isShrinkResources = true", content2)
-                  has_true = re.search(r"isMinifyEnabled\s*=\s*true", content2)
-              else:
-                  content2 = re.sub(r"minifyEnabled\s+false", "minifyEnabled true", content)
-                  content2 = re.sub(r"shrinkResources\s+false", "shrinkResources true", content2)
-                  has_true = re.search(r"minifyEnabled\s+true", content2)
-              if not has_true:
-                  if is_kts:
-                      override = (
-                          "\nandroid {\n    buildTypes {\n        getByName(\"release\") {\n"
-                          "            isMinifyEnabled = true\n            isShrinkResources = true\n"
-                          "        }\n    }\n}\n"
-                      )
-                  else:
-                      override = (
-                          "\nandroid {\n    buildTypes {\n        release {\n"
-                          "            minifyEnabled true\n            shrinkResources true\n"
-                          "        }\n    }\n}\n"
-                      )
-                  content2 += override
-                  print(f"ℹ️  Pattern minify tidak ditemukan di {target} — override block ditambahkan")
-              with open(target, "w", encoding="utf-8") as f:
-                  f.write(content2)
-              print(f"✅ {target} — minify+shrink dipaksa aktif")
-          PYEOF
+          sed -i "s/minifyEnabled false/minifyEnabled true/" android/app/build.gradle || true
+          sed -i "s/shrinkResources false/shrinkResources true/" android/app/build.gradle || true
+          grep -E "minify|shrink" android/app/build.gradle || echo "OK"
 
       - name: Build Flutter APK split-per-abi
         run: |
