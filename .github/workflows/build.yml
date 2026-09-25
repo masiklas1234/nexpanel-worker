@@ -82,35 +82,57 @@ jobs:
 
       - name: Sign APK
         run: |
-          # FIX 1: Cek APK dulu sebelum generate keystore
-          APK_LIST=$(find build/app/outputs -name "*.apk" 2>/dev/null)
+          set -e
+          echo "=== Cari APK hasil build ==="
+          APK_LIST=$(find build/app/outputs -name "*.apk" 2>/dev/null || true)
           if [ -z "$APK_LIST" ]; then
-            echo "ERROR: Tidak ada APK hasil build!"
+            echo "ERROR: Tidak ada APK! Isi build/:"
             find build/ -type f 2>/dev/null || true
             exit 1
           fi
-          echo "=== APK ditemukan ==="
           echo "$APK_LIST"
-          # FIX 2: Generate keystore
-          keytool -genkey -v -keystore sign.keystore -alias key0 \
+          echo "=== Generate keystore (PKCS12) ==="
+          keytool -genkey -v \
+            -keystore sign.keystore \
+            -storetype pkcs12 \
+            -alias key0 \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass nexpanel123 -keypass nexpanel123 \
             -dname "CN=NexPanel,O=TanzAI,C=MY" -noprompt
-          # FIX 3: Cari apksigner pakai find (robust, tidak bergantung ls|sort)
-          BTOOL=$(find "$ANDROID_SDK_ROOT/build-tools" -name "apksigner" -type f 2>/dev/null | sort -V | tail -1)
-          if [ -z "$BTOOL" ]; then echo "ERROR: apksigner tidak ditemukan!"; exit 1; fi
-          echo "apksigner path: $BTOOL"
+          ls -lh sign.keystore
+          echo "=== Cari tools (apksigner + zipalign) ==="
+          BUILD_TOOLS_DIR=$(find "$ANDROID_SDK_ROOT/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
+          echo "Build tools dir: $BUILD_TOOLS_DIR"
+          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
+          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
+          if [ ! -f "$APKSIGNER" ]; then echo "ERROR: apksigner tidak ada di $BUILD_TOOLS_DIR"; ls "$BUILD_TOOLS_DIR"; exit 1; fi
+          echo "apksigner: $APKSIGNER"
+          echo "zipalign:  $ZIPALIGN"
           mkdir -p signed_apks
+          echo "=== Sign setiap APK ==="
           for APK in $APK_LIST; do
-            # FIX 4: grep -oE bukan -oP (kompatibel semua runner ubuntu)
             ABI=$(echo "$APK" | grep -oE "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
+            ALIGNED="signed_apks/aligned_${ABI}.apk"
             OUT="signed_apks/NexPanel_${ABI}.apk"
-            "$BTOOL" sign \
-              --ks sign.keystore --ks-key-alias key0 \
-              --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
-              --out "$OUT" "$APK"
-            echo "Signed: $OUT ($(du -sh "$OUT" | cut -f1))"
+            echo "--- Proses: $APK -> $OUT ---"
+            if [ -f "$ZIPALIGN" ]; then
+              "$ZIPALIGN" -v -p 4 "$APK" "$ALIGNED"
+            else
+              cp "$APK" "$ALIGNED"
+            fi
+            bash "$APKSIGNER" sign \
+              --ks sign.keystore \
+              --ks-key-alias key0 \
+              --ks-pass pass:nexpanel123 \
+              --key-pass pass:nexpanel123 \
+              --out "$OUT" \
+              "$ALIGNED"
+            bash "$APKSIGNER" verify --verbose "$OUT" || true
+            echo "OK: $OUT ($(du -sh "$OUT" | cut -f1))"
           done
+          rm -f signed_apks/aligned_*.apk
+          echo "=== Hasil signed_apks/ ==="
+          ls -lh signed_apks/
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
