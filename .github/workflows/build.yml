@@ -62,10 +62,18 @@ jobs:
 
       - name: Setup Gradle JVM args
         run: |
-          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m" >> android/gradle.properties
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
           echo "android.enableR8.fullMode=false" >> android/gradle.properties
+          echo "android.enableR8=false" >> android/gradle.properties
+          echo "android.enableProguard=false" >> android/gradle.properties
           cat android/gradle.properties
+          # FIX: android/build.gradle pakai rootProject.buildDir = ../build
+          # yang taruh output di luar repo. Override ke dalam repo.
+          sed -i 's|rootProject.buildDir = "../build"|rootProject.buildDir = "build"|g' android/build.gradle || true
+          sed -i 's|rootProject.buildDir = '../build'|rootProject.buildDir = 'build'|g' android/build.gradle || true
+          echo "=== android/build.gradle setelah patch ==="
+          cat android/build.gradle
 
       - name: Flutter pub get
         run: flutter pub get
@@ -77,8 +85,9 @@ jobs:
           flutter build apk \
             --release \
             --split-per-abi \
-            --tree-shake-icons \
-            --verbose 2>&1 | tee /tmp/flutter_build.log | tail -50
+            --no-shrink \
+            --no-tree-shake-icons \
+            --verbose 2>&1 | tee /tmp/flutter_build.log | tail -80
           echo "=== Verifikasi APK ==="
           find build/app/outputs -name "*.apk" 2>/dev/null | while read f; do echo "APK: $f ($(du -sh "$f" | cut -f1))"; done
           APK_COUNT=$(find build/app/outputs -name "*.apk" 2>/dev/null | wc -l)
