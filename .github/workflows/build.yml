@@ -28,17 +28,15 @@ jobs:
       - name: Verify project files
         run: |
           ls -la src/ || { echo "ERROR: src/ tidak ada"; exit 1; }
-          ls src/pubspec.yaml || { echo "ERROR: pubspec.yaml tidak ada"; exit 1; }
+          test -f src/pubspec.yaml || { echo "ERROR: pubspec.yaml tidak ada"; exit 1; }
           echo "Project files OK"
 
       - name: Copy source to project root
         run: |
-          rm -rf android
+          rm -rf android ios linux macos windows web
           cp -rf src/. .
-          echo "=== Files ==="
           ls -la
-          echo "=== android/ setelah copy ==="
-          ls -la android/ || echo "ERROR: android/ tidak ada setelah copy"
+          test -d android || { echo "ERROR: android/ tidak ada setelah copy"; exit 1; }
 
       - name: Fix local.properties
         run: |
@@ -53,48 +51,12 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Compress video asset
-        run: |
-          SRC="android/app/src/main/assets/overlay_video.mp4"
-          if [ -f "$SRC" ]; then
-            sudo apt-get install -y ffmpeg -qq 2>/dev/null || true
-            if command -v ffmpeg &>/dev/null; then
-              ORIG=$(du -sh "$SRC" | cut -f1)
-              ffmpeg -i "$SRC" -vcodec libx264 -crf 28 -preset fast \
-                -acodec aac -b:a 64k -y /tmp/vid.mp4 2>/dev/null && \
-              [ -s /tmp/vid.mp4 ] && cp /tmp/vid.mp4 "$SRC"
-              echo "Video: $ORIG => $(du -sh $SRC | cut -f1)"
-            fi
-          fi
-
-      - name: Setup Gradle properties
+      - name: Setup Gradle JVM args
         run: |
           echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
-          echo "org.gradle.parallel=false" >> android/gradle.properties
           echo "android.enableR8.fullMode=false" >> android/gradle.properties
           cat android/gradle.properties
-
-      - name: Create proguard-rules.pro
-        run: |
-          PROGUARD="android/app/proguard-rules.pro"
-          if [ ! -f "$PROGUARD" ]; then
-            printf '-keep class io.flutter.** { *; }\n' > "$PROGUARD"
-            printf '-keep class io.flutter.embedding.** { *; }\n' >> "$PROGUARD"
-            printf '-keep class io.flutter.plugin.** { *; }\n' >> "$PROGUARD"
-            printf '-keep class com.google.firebase.** { *; }\n' >> "$PROGUARD"
-            printf '-keep class com.google.android.gms.** { *; }\n' >> "$PROGUARD"
-            printf '-dontwarn io.flutter.**\n' >> "$PROGUARD"
-            printf '-dontwarn com.google.**\n' >> "$PROGUARD"
-            echo "proguard-rules.pro dibuat"
-          fi
-          cat "$PROGUARD"
-
-      - name: Enable minify dan shrink
-        run: |
-          sed -i "s/minifyEnabled false/minifyEnabled true/" android/app/build.gradle || true
-          sed -i "s/shrinkResources false/shrinkResources true/" android/app/build.gradle || true
-          grep -E "minify|shrink" android/app/build.gradle || echo "OK"
 
       - name: Build Flutter APK split-per-abi
         run: |
@@ -102,7 +64,7 @@ jobs:
             --release \
             --split-per-abi \
             --tree-shake-icons
-          echo "=== APK ==="
+          echo "=== APK hasil build ==="
           find build/app/outputs -name "*.apk" -exec ls -lh {} \;
 
       - name: Sign APK
@@ -111,10 +73,6 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass nexpanel123 -keypass nexpanel123 \
             -dname "CN=NexPanel,O=TanzAI,C=MY" -noprompt
-          if [ ! -f sign.keystore ]; then
-            echo "ERROR: sign.keystore gagal dibuat!"
-            exit 1
-          fi
           BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
           mkdir -p signed_apks
           APK_LIST=$(find build/app/outputs -name "*.apk")
@@ -125,15 +83,15 @@ jobs:
           for APK in $APK_LIST; do
             ABI=$(echo "$APK" | grep -oP "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
             OUT="signed_apks/NexPanel_${ABI}.apk"
-            $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
-              --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
+            $BTOOL sign \
+              --ks sign.keystore \
+              --ks-key-alias key0 \
+              --ks-pass pass:nexpanel123 \
+              --key-pass pass:nexpanel123 \
               --out "$OUT" "$APK"
-            $BTOOL verify "$OUT" && echo "Signed: $OUT ($(du -sh $OUT | cut -f1))"
+            $BTOOL verify "$OUT" && echo "Signed OK: $OUT ($(du -sh $OUT | cut -f1))"
           done
-          if [ -z "$(ls -A signed_apks/ 2>/dev/null)" ]; then
-            echo "ERROR: Tidak ada APK ter-sign!"
-            exit 1
-          fi
+          ls -lh signed_apks/
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
