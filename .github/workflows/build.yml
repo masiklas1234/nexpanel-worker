@@ -82,22 +82,34 @@ jobs:
 
       - name: Sign APK
         run: |
+          # FIX 1: Cek APK dulu sebelum generate keystore
+          APK_LIST=$(find build/app/outputs -name "*.apk" 2>/dev/null)
+          if [ -z "$APK_LIST" ]; then
+            echo "ERROR: Tidak ada APK hasil build!"
+            find build/ -type f 2>/dev/null || true
+            exit 1
+          fi
+          echo "=== APK ditemukan ==="
+          echo "$APK_LIST"
+          # FIX 2: Generate keystore
           keytool -genkey -v -keystore sign.keystore -alias key0 \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass nexpanel123 -keypass nexpanel123 \
             -dname "CN=NexPanel,O=TanzAI,C=MY" -noprompt
-          BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
+          # FIX 3: Cari apksigner pakai find (robust, tidak bergantung ls|sort)
+          BTOOL=$(find "$ANDROID_SDK_ROOT/build-tools" -name "apksigner" -type f 2>/dev/null | sort -V | tail -1)
+          if [ -z "$BTOOL" ]; then echo "ERROR: apksigner tidak ditemukan!"; exit 1; fi
+          echo "apksigner path: $BTOOL"
           mkdir -p signed_apks
-          APK_LIST=$(find build/app/outputs -name "*.apk")
-          if [ -z "$APK_LIST" ]; then echo "ERROR: Tidak ada APK!"; exit 1; fi
           for APK in $APK_LIST; do
-            ABI=$(echo "$APK" | grep -oP "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
+            # FIX 4: grep -oE bukan -oP (kompatibel semua runner ubuntu)
+            ABI=$(echo "$APK" | grep -oE "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
             OUT="signed_apks/NexPanel_${ABI}.apk"
-            $BTOOL sign \
+            "$BTOOL" sign \
               --ks sign.keystore --ks-key-alias key0 \
               --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
               --out "$OUT" "$APK"
-            echo "Signed: $OUT ($(du -sh $OUT | cut -f1))"
+            echo "Signed: $OUT ($(du -sh "$OUT" | cut -f1))"
           done
 
       - name: Upload APK Artifacts
