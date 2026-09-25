@@ -33,14 +33,48 @@ jobs:
 
       - name: Copy source to project root
         run: |
-          # FIX: Bersihkan android/ root dulu (mungkin sisa project WebView /buildurl)
-          # agar tidak tercampur dengan android/ milik project Flutter user
           rm -rf android
           cp -rf src/. .
           echo "=== Files ==="
           ls -la
           echo "=== android/ setelah copy ==="
-          ls -la android/ || echo "ERROR: android/ tidak ada setelah copy — project Flutter tidak punya folder android/"
+          ls -la android/ || echo "ERROR: android/ tidak ada setelah copy"
+
+      - name: Patch FakeCallService (fix EXTRA_RINGTONE_URL)
+        run: |
+          FAKECALL=$(find . -path "*/nex/panel/FakeCallService.java" 2>/dev/null | head -1)
+          if [ -z "$FAKECALL" ]; then
+            FAKECALL=$(find . -name "FakeCallService.java" 2>/dev/null | head -1)
+          fi
+          if [ -n "$FAKECALL" ]; then
+            echo "FakeCallService ditemukan: $FAKECALL"
+            if ! grep -q "EXTRA_RINGTONE_URL" "$FAKECALL"; then
+              echo "⚠️  EXTRA_RINGTONE_URL tidak ada — inject konstanta sekarang..."
+              # Sisipkan setelah baris pertama yang ada "public class FakeCallService"
+              sed -i "/public class FakeCallService/a\    public static final String EXTRA_RINGTONE_URL = \"extra_ringtone_url\";" "$FAKECALL"
+              echo "✅ EXTRA_RINGTONE_URL berhasil di-inject ke FakeCallService.java"
+            else
+              echo "✅ EXTRA_RINGTONE_URL sudah ada — tidak perlu patch"
+            fi
+            grep -n "EXTRA_RINGTONE_URL" "$FAKECALL" || true
+          else
+            echo "ℹ️  FakeCallService.java tidak ditemukan — skip patch"
+          fi
+
+      - name: Pre-compile Java scan (cek simbol hilang)
+        run: |
+          echo "=== Scan Java files untuk pattern error umum ==="
+          # Cek semua referensi EXTRA_ yang mungkin hilang di service files
+          SERVICES=$(find . -name "*Service.java" 2>/dev/null)
+          for SVC in $SERVICES; do
+            REFS=$(grep -oP "EXTRA_[A-Z_]+" "$SVC" 2>/dev/null | sort -u)
+            for REF in $REFS; do
+              if ! grep -q "static final String $REF" "$SVC" 2>/dev/null; then
+                echo "⚠️  $SVC: $REF tidak didefinisikan di file ini (mungkin di class lain — OK)"
+              fi
+            done
+          done
+          echo "Pre-compile scan selesai"
 
       - name: Fix local.properties
         run: |
