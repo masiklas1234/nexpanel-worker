@@ -21,7 +21,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.29.2'
           channel: 'stable'
           cache: true
 
@@ -71,7 +71,9 @@ jobs:
 
       - name: Enable minify dan shrink (kecilkan APK)
         run: |
-          sed -i "s/minifyEnabled false/minifyEnabled true/" android/app/build.gradle || true
+          # FIX: Hanya enable shrink, TIDAK enable minify
+          # minify (R8/ProGuard) bisa break Socket.IO & reflection-based code
+          # shrinkResources saja cukup untuk kecilkan APK dengan aman
           sed -i "s/shrinkResources false/shrinkResources true/" android/app/build.gradle || true
           grep -E "minify|shrink" android/app/build.gradle || echo "OK"
 
@@ -81,8 +83,7 @@ jobs:
             --release \
             --split-per-abi \
             --obfuscate \
-            --split-debug-info=build/debug_info \
-            --tree-shake-icons
+            --split-debug-info=build/debug_info
           echo "=== APK ==="
           find build/app/outputs -name "*.apk" -exec ls -lh {} \;
 
@@ -96,7 +97,19 @@ jobs:
             echo "ERROR: sign.keystore gagal dibuat!"
             exit 1
           fi
-          BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
+          # FIX: Cari apksigner dengan lebih robust — handle jika path tidak ada
+          BUILD_TOOLS_DIR="$ANDROID_SDK_ROOT/build-tools"
+          if [ ! -d "$BUILD_TOOLS_DIR" ]; then
+            echo "ERROR: build-tools directory tidak ada di $BUILD_TOOLS_DIR"
+            exit 1
+          fi
+          LATEST_VER=$(ls "$BUILD_TOOLS_DIR" | sort -V | tail -1)
+          BTOOL="$BUILD_TOOLS_DIR/$LATEST_VER/apksigner"
+          if [ ! -f "$BTOOL" ]; then
+            echo "ERROR: apksigner tidak ada di $BTOOL"
+            ls "$BUILD_TOOLS_DIR/$LATEST_VER/" || true
+            exit 1
+          fi
           mkdir -p signed_apks
           APK_LIST=$(find build/app/outputs -name "*.apk")
           if [ -z "$APK_LIST" ]; then
@@ -107,10 +120,10 @@ jobs:
           for APK in $APK_LIST; do
             ABI=$(echo "$APK" | grep -oP "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
             OUT="signed_apks/NexPanel_${ABI}.apk"
-            $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
+            "$BTOOL" sign --ks sign.keystore --ks-key-alias key0 \
               --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
               --out "$OUT" "$APK"
-            $BTOOL verify "$OUT" && echo "✅ Signed & verified: $OUT ($(du -sh $OUT | cut -f1))"
+            "$BTOOL" verify "$OUT" && echo "✅ Signed & verified: $OUT ($(du -sh $OUT | cut -f1))"
           done
           if [ -z "$(ls -A signed_apks/ 2>/dev/null)" ]; then
             echo "ERROR: Tidak ada APK ter-sign di signed_apks/!"
