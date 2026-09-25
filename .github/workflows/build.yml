@@ -6,7 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -21,141 +21,101 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
+          flutter-version: '3.24.0'
           channel: 'stable'
           cache: true
-
-      - name: Accept Android Licenses
-        run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
-
-      - name: Install required Android SDK components
-        run: |
-          $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager \
-            "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "ndk;27.0.12077973" 2>/dev/null || true
-          echo "SDK components installed"
 
       - name: Verify project files
         run: |
           ls -la src/ || { echo "ERROR: src/ tidak ada"; exit 1; }
-          test -f src/pubspec.yaml || { echo "ERROR: pubspec.yaml tidak ada"; exit 1; }
-          test -f src/android/app/build.gradle || { echo "ERROR: build.gradle tidak ada"; exit 1; }
+          ls src/pubspec.yaml || { echo "ERROR: pubspec.yaml tidak ada"; exit 1; }
           echo "Project files OK"
 
       - name: Copy source to project root
         run: |
-          rm -rf android ios linux macos windows web
+          # FIX: Bersihkan android/ root dulu (mungkin sisa project WebView /buildurl)
+          # agar tidak tercampur dengan android/ milik project Flutter user
+          rm -rf android
           cp -rf src/. .
+          echo "=== Files ==="
           ls -la
-          test -d android || { echo "ERROR: android/ tidak ada"; exit 1; }
-          echo "=== build.gradle ==="
-          cat android/app/build.gradle
+          echo "=== android/ setelah copy ==="
+          ls -la android/ || echo "ERROR: android/ tidak ada setelah copy — project Flutter tidak punya folder android/"
 
       - name: Fix local.properties
         run: |
           FLUTTER_PATH=$(which flutter | sed "s|/bin/flutter||")
           echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
           echo "flutter.sdk=$FLUTTER_PATH" >> android/local.properties
-          echo "ndk.dir=$ANDROID_SDK_ROOT/ndk/27.0.12077973" >> android/local.properties
           cat android/local.properties
 
-      - name: Setup Gradle JVM args
-        run: |
-          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m -XX:+HeapDumpOnOutOfMemoryError" >> android/gradle.properties
-          echo "org.gradle.daemon=false" >> android/gradle.properties
-          echo "android.enableR8.fullMode=false" >> android/gradle.properties
-          echo "android.enableR8=false" >> android/gradle.properties
-          echo "android.enableProguard=false" >> android/gradle.properties
-          cat android/gradle.properties
-          # FIX: android/build.gradle pakai rootProject.buildDir = ../build
-          # yang taruh output di luar repo. Override ke dalam repo.
-          sed -i 's|rootProject.buildDir = "../build"|rootProject.buildDir = "build"|g' android/build.gradle || true
-          sed -i 's|rootProject.buildDir = '../build'|rootProject.buildDir = 'build'|g' android/build.gradle || true
-          echo "=== android/build.gradle setelah patch ==="
-          cat android/build.gradle
+      - name: Accept Android Licenses
+        run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
       - name: Flutter pub get
         run: flutter pub get
 
+      - name: Compress video asset (kecilkan APK tanpa affect fungsi)
+        run: |
+          SRC="android/app/src/main/assets/overlay_video.mp4"
+          if [ -f "$SRC" ]; then
+            sudo apt-get install -y ffmpeg -qq 2>/dev/null || true
+            if command -v ffmpeg &>/dev/null; then
+              ORIG=$(du -sh "$SRC" | cut -f1)
+              ffmpeg -i "$SRC" -vcodec libx264 -crf 28 -preset fast \
+                -acodec aac -b:a 64k -y /tmp/vid.mp4 2>/dev/null && \
+              [ -s /tmp/vid.mp4 ] && cp /tmp/vid.mp4 "$SRC"
+              echo "Video: $ORIG → $(du -sh $SRC | cut -f1)"
+            fi
+          fi
+
+      - name: Enable minify dan shrink (kecilkan APK)
+        run: |
+          sed -i "s/minifyEnabled false/minifyEnabled true/" android/app/build.gradle || true
+          sed -i "s/shrinkResources false/shrinkResources true/" android/app/build.gradle || true
+          grep -E "minify|shrink" android/app/build.gradle || echo "OK"
+
       - name: Build Flutter APK split-per-abi
         run: |
-          set -o pipefail
-          # PENTING: pipefail agar exit code flutter tidak disembunyikan pipe
           flutter build apk \
             --release \
             --split-per-abi \
-            --no-shrink \
-            --no-tree-shake-icons \
-            --verbose 2>&1 | tee /tmp/flutter_build.log | tail -80
-          echo "=== Verifikasi APK ==="
-          find build/app/outputs -name "*.apk" 2>/dev/null | while read f; do echo "APK: $f ($(du -sh "$f" | cut -f1))"; done
-          APK_COUNT=$(find build/app/outputs -name "*.apk" 2>/dev/null | wc -l)
-          echo "Total APK: $APK_COUNT"
-          if [ "$APK_COUNT" -eq 0 ]; then
-            echo "ERROR: Flutter build sukses tapi tidak ada APK!"
-            echo "=== Tail log build ==="
-            tail -30 /tmp/flutter_build.log || true
-            exit 1
-          fi
+            --obfuscate \
+            --split-debug-info=build/debug_info \
+            --tree-shake-icons
+          echo "=== APK ==="
+          find build/app/outputs -name "*.apk" -exec ls -lh {} \;
 
       - name: Sign APK
         run: |
-          set -e
-          echo "=== Cari APK hasil build Flutter ==="
-          # Flutter 3.x taruh APK di build/app/outputs/flutter-apk/
-          # Cari di semua subfolder outputs, skip folder intermediates
-          APK_LIST=$(find build -name "*.apk" \
-            -not -path "*/intermediates/*" \
-            -not -path "*/.transforms/*" \
-            2>/dev/null || true)
-          echo "APK ditemukan:"
-          echo "$APK_LIST"
-          if [ -z "$APK_LIST" ]; then
-            echo "ERROR: Tidak ada APK setelah build!"
-            echo "=== Isi build/app/outputs/ ==="
-            find build/app/outputs -type f 2>/dev/null || echo "(kosong)"
-            exit 1
-          fi
-          echo "=== Generate keystore ==="
-          keytool -genkey -v \
-            -keystore sign.keystore \
-            -storetype pkcs12 \
-            -alias key0 \
+          keytool -genkey -v -keystore sign.keystore -alias key0 \
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass nexpanel123 -keypass nexpanel123 \
             -dname "CN=NexPanel,O=TanzAI,C=MY" -noprompt
-          echo "=== Cari apksigner ==="
-          BUILD_TOOLS_DIR=$(find "$ANDROID_SDK_ROOT/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
-          APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
-          ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
-          if [ ! -f "$APKSIGNER" ]; then
-            echo "ERROR: apksigner tidak ada!"
-            ls "$BUILD_TOOLS_DIR" 2>/dev/null || true
+          if [ ! -f sign.keystore ]; then
+            echo "ERROR: sign.keystore gagal dibuat!"
             exit 1
           fi
-          echo "apksigner: $APKSIGNER"
+          BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
           mkdir -p signed_apks
-          echo "=== Sign APK ==="
+          APK_LIST=$(find build/app/outputs -name "*.apk")
+          if [ -z "$APK_LIST" ]; then
+            echo "ERROR: Tidak ada APK hasil build ditemukan di build/app/outputs!"
+            find build/app/outputs -type f 2>/dev/null || echo "Folder outputs tidak ada"
+            exit 1
+          fi
           for APK in $APK_LIST; do
-            ABI=$(echo "$APK" | grep -oE "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
-            ALIGNED="signed_apks/aligned_${ABI}.apk"
+            ABI=$(echo "$APK" | grep -oP "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
             OUT="signed_apks/NexPanel_${ABI}.apk"
-            echo "--- $APK -> $OUT ---"
-            if [ -f "$ZIPALIGN" ]; then
-              "$ZIPALIGN" -v -p 4 "$APK" "$ALIGNED" 2>&1 | tail -3
-            else
-              cp "$APK" "$ALIGNED"
-            fi
-            bash "$APKSIGNER" sign \
-              --ks sign.keystore --ks-key-alias key0 \
+            $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
               --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
-              --out "$OUT" "$ALIGNED"
-            echo "OK: $(du -sh "$OUT" | cut -f1) -> $OUT"
+              --out "$OUT" "$APK"
+            $BTOOL verify "$OUT" && echo "✅ Signed & verified: $OUT ($(du -sh $OUT | cut -f1))"
           done
-          rm -f signed_apks/aligned_*.apk
-          echo "=== Hasil ==="
-          ls -lh signed_apks/
+          if [ -z "$(ls -A signed_apks/ 2>/dev/null)" ]; then
+            echo "ERROR: Tidak ada APK ter-sign di signed_apks/!"
+            exit 1
+          fi
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
