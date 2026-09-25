@@ -72,16 +72,23 @@ jobs:
 
       - name: Build Flutter APK split-per-abi
         run: |
+          set -o pipefail
+          # PENTING: pipefail agar exit code flutter tidak disembunyikan pipe
           flutter build apk \
             --release \
             --split-per-abi \
             --tree-shake-icons \
-            --verbose 2>&1 | tail -100
-          echo "=== APK hasil build ==="
-          echo "=== APK di flutter-apk/ ==="
-          find build/app/outputs/flutter-apk -name "*.apk" -exec ls -lh {} \; 2>/dev/null || true
-          echo "=== APK di apk/release/ ==="
-          find build/app/outputs/apk -name "*.apk" -exec ls -lh {} \; 2>/dev/null || true
+            --verbose 2>&1 | tee /tmp/flutter_build.log | tail -50
+          echo "=== Verifikasi APK ==="
+          find build/app/outputs -name "*.apk" 2>/dev/null | while read f; do echo "APK: $f ($(du -sh "$f" | cut -f1))"; done
+          APK_COUNT=$(find build/app/outputs -name "*.apk" 2>/dev/null | wc -l)
+          echo "Total APK: $APK_COUNT"
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "ERROR: Flutter build sukses tapi tidak ada APK!"
+            echo "=== Tail log build ==="
+            tail -30 /tmp/flutter_build.log || true
+            exit 1
+          fi
 
       - name: Sign APK
         run: |
