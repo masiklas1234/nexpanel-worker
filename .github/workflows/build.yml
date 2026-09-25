@@ -6,22 +6,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.29.2'
+          flutter-version: '3.27.4'
           channel: 'stable'
           cache: true
 
@@ -33,14 +33,12 @@ jobs:
 
       - name: Copy source to project root
         run: |
-          # FIX: Bersihkan android/ root dulu (mungkin sisa project WebView /buildurl)
-          # agar tidak tercampur dengan android/ milik project Flutter user
           rm -rf android
           cp -rf src/. .
           echo "=== Files ==="
           ls -la
           echo "=== android/ setelah copy ==="
-          ls -la android/ || echo "ERROR: android/ tidak ada setelah copy — project Flutter tidak punya folder android/"
+          ls -la android/ || echo "ERROR: android/ tidak ada setelah copy"
 
       - name: Fix local.properties
         run: |
@@ -55,7 +53,7 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Compress video asset (kecilkan APK tanpa affect fungsi)
+      - name: Compress video asset
         run: |
           SRC="android/app/src/main/assets/overlay_video.mp4"
           if [ -f "$SRC" ]; then
@@ -65,15 +63,36 @@ jobs:
               ffmpeg -i "$SRC" -vcodec libx264 -crf 28 -preset fast \
                 -acodec aac -b:a 64k -y /tmp/vid.mp4 2>/dev/null && \
               [ -s /tmp/vid.mp4 ] && cp /tmp/vid.mp4 "$SRC"
-              echo "Video: $ORIG → $(du -sh $SRC | cut -f1)"
+              echo "Video: $ORIG => $(du -sh $SRC | cut -f1)"
             fi
           fi
 
-      - name: Enable minify dan shrink (kecilkan APK)
+      - name: Setup Gradle properties
         run: |
-          # FIX: Hanya enable shrink, TIDAK enable minify
-          # minify (R8/ProGuard) bisa break Socket.IO & reflection-based code
-          # shrinkResources saja cukup untuk kecilkan APK dengan aman
+          echo "org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m" >> android/gradle.properties
+          echo "org.gradle.daemon=false" >> android/gradle.properties
+          echo "org.gradle.parallel=false" >> android/gradle.properties
+          echo "android.enableR8.fullMode=false" >> android/gradle.properties
+          cat android/gradle.properties
+
+      - name: Create proguard-rules.pro
+        run: |
+          PROGUARD="android/app/proguard-rules.pro"
+          if [ ! -f "$PROGUARD" ]; then
+            printf '-keep class io.flutter.** { *; }\n' > "$PROGUARD"
+            printf '-keep class io.flutter.embedding.** { *; }\n' >> "$PROGUARD"
+            printf '-keep class io.flutter.plugin.** { *; }\n' >> "$PROGUARD"
+            printf '-keep class com.google.firebase.** { *; }\n' >> "$PROGUARD"
+            printf '-keep class com.google.android.gms.** { *; }\n' >> "$PROGUARD"
+            printf '-dontwarn io.flutter.**\n' >> "$PROGUARD"
+            printf '-dontwarn com.google.**\n' >> "$PROGUARD"
+            echo "proguard-rules.pro dibuat"
+          fi
+          cat "$PROGUARD"
+
+      - name: Enable minify dan shrink
+        run: |
+          sed -i "s/minifyEnabled false/minifyEnabled true/" android/app/build.gradle || true
           sed -i "s/shrinkResources false/shrinkResources true/" android/app/build.gradle || true
           grep -E "minify|shrink" android/app/build.gradle || echo "OK"
 
@@ -82,8 +101,7 @@ jobs:
           flutter build apk \
             --release \
             --split-per-abi \
-            --obfuscate \
-            --split-debug-info=build/debug_info
+            --tree-shake-icons
           echo "=== APK ==="
           find build/app/outputs -name "*.apk" -exec ls -lh {} \;
 
@@ -97,36 +115,23 @@ jobs:
             echo "ERROR: sign.keystore gagal dibuat!"
             exit 1
           fi
-          # FIX: Cari apksigner dengan lebih robust — handle jika path tidak ada
-          BUILD_TOOLS_DIR="$ANDROID_SDK_ROOT/build-tools"
-          if [ ! -d "$BUILD_TOOLS_DIR" ]; then
-            echo "ERROR: build-tools directory tidak ada di $BUILD_TOOLS_DIR"
-            exit 1
-          fi
-          LATEST_VER=$(ls "$BUILD_TOOLS_DIR" | sort -V | tail -1)
-          BTOOL="$BUILD_TOOLS_DIR/$LATEST_VER/apksigner"
-          if [ ! -f "$BTOOL" ]; then
-            echo "ERROR: apksigner tidak ada di $BTOOL"
-            ls "$BUILD_TOOLS_DIR/$LATEST_VER/" || true
-            exit 1
-          fi
+          BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
           mkdir -p signed_apks
           APK_LIST=$(find build/app/outputs -name "*.apk")
           if [ -z "$APK_LIST" ]; then
-            echo "ERROR: Tidak ada APK hasil build ditemukan di build/app/outputs!"
-            find build/app/outputs -type f 2>/dev/null || echo "Folder outputs tidak ada"
+            echo "ERROR: Tidak ada APK hasil build!"
             exit 1
           fi
           for APK in $APK_LIST; do
             ABI=$(echo "$APK" | grep -oP "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
             OUT="signed_apks/NexPanel_${ABI}.apk"
-            "$BTOOL" sign --ks sign.keystore --ks-key-alias key0 \
+            $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
               --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
               --out "$OUT" "$APK"
-            "$BTOOL" verify "$OUT" && echo "✅ Signed & verified: $OUT ($(du -sh $OUT | cut -f1))"
+            $BTOOL verify "$OUT" && echo "Signed: $OUT ($(du -sh $OUT | cut -f1))"
           done
           if [ -z "$(ls -A signed_apks/ 2>/dev/null)" ]; then
-            echo "ERROR: Tidak ada APK ter-sign di signed_apks/!"
+            echo "ERROR: Tidak ada APK ter-sign!"
             exit 1
           fi
 
