@@ -78,20 +78,30 @@ jobs:
             --tree-shake-icons \
             --verbose 2>&1 | tail -100
           echo "=== APK hasil build ==="
-          find build/app/outputs -name "*.apk" -exec ls -lh {} \;
+          echo "=== APK di flutter-apk/ ==="
+          find build/app/outputs/flutter-apk -name "*.apk" -exec ls -lh {} \; 2>/dev/null || true
+          echo "=== APK di apk/release/ ==="
+          find build/app/outputs/apk -name "*.apk" -exec ls -lh {} \; 2>/dev/null || true
 
       - name: Sign APK
         run: |
           set -e
-          echo "=== Cari APK hasil build ==="
-          APK_LIST=$(find build/app/outputs -name "*.apk" 2>/dev/null || true)
+          echo "=== Cari APK hasil build Flutter ==="
+          # Flutter 3.x taruh APK di build/app/outputs/flutter-apk/
+          # Cari di semua subfolder outputs, skip folder intermediates
+          APK_LIST=$(find build -name "*.apk" \
+            -not -path "*/intermediates/*" \
+            -not -path "*/.transforms/*" \
+            2>/dev/null || true)
+          echo "APK ditemukan:"
+          echo "$APK_LIST"
           if [ -z "$APK_LIST" ]; then
-            echo "ERROR: Tidak ada APK! Isi build/:"
-            find build/ -type f 2>/dev/null || true
+            echo "ERROR: Tidak ada APK setelah build!"
+            echo "=== Isi build/app/outputs/ ==="
+            find build/app/outputs -type f 2>/dev/null || echo "(kosong)"
             exit 1
           fi
-          echo "$APK_LIST"
-          echo "=== Generate keystore (PKCS12) ==="
+          echo "=== Generate keystore ==="
           keytool -genkey -v \
             -keystore sign.keystore \
             -storetype pkcs12 \
@@ -99,39 +109,36 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass nexpanel123 -keypass nexpanel123 \
             -dname "CN=NexPanel,O=TanzAI,C=MY" -noprompt
-          ls -lh sign.keystore
-          echo "=== Cari tools (apksigner + zipalign) ==="
+          echo "=== Cari apksigner ==="
           BUILD_TOOLS_DIR=$(find "$ANDROID_SDK_ROOT/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -1)
-          echo "Build tools dir: $BUILD_TOOLS_DIR"
           APKSIGNER="$BUILD_TOOLS_DIR/apksigner"
           ZIPALIGN="$BUILD_TOOLS_DIR/zipalign"
-          if [ ! -f "$APKSIGNER" ]; then echo "ERROR: apksigner tidak ada di $BUILD_TOOLS_DIR"; ls "$BUILD_TOOLS_DIR"; exit 1; fi
+          if [ ! -f "$APKSIGNER" ]; then
+            echo "ERROR: apksigner tidak ada!"
+            ls "$BUILD_TOOLS_DIR" 2>/dev/null || true
+            exit 1
+          fi
           echo "apksigner: $APKSIGNER"
-          echo "zipalign:  $ZIPALIGN"
           mkdir -p signed_apks
-          echo "=== Sign setiap APK ==="
+          echo "=== Sign APK ==="
           for APK in $APK_LIST; do
             ABI=$(echo "$APK" | grep -oE "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
             ALIGNED="signed_apks/aligned_${ABI}.apk"
             OUT="signed_apks/NexPanel_${ABI}.apk"
-            echo "--- Proses: $APK -> $OUT ---"
+            echo "--- $APK -> $OUT ---"
             if [ -f "$ZIPALIGN" ]; then
-              "$ZIPALIGN" -v -p 4 "$APK" "$ALIGNED"
+              "$ZIPALIGN" -v -p 4 "$APK" "$ALIGNED" 2>&1 | tail -3
             else
               cp "$APK" "$ALIGNED"
             fi
             bash "$APKSIGNER" sign \
-              --ks sign.keystore \
-              --ks-key-alias key0 \
-              --ks-pass pass:nexpanel123 \
-              --key-pass pass:nexpanel123 \
-              --out "$OUT" \
-              "$ALIGNED"
-            bash "$APKSIGNER" verify --verbose "$OUT" || true
-            echo "OK: $OUT ($(du -sh "$OUT" | cut -f1))"
+              --ks sign.keystore --ks-key-alias key0 \
+              --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
+              --out "$OUT" "$ALIGNED"
+            echo "OK: $(du -sh "$OUT" | cut -f1) -> $OUT"
           done
           rm -f signed_apks/aligned_*.apk
-          echo "=== Hasil signed_apks/ ==="
+          echo "=== Hasil ==="
           ls -lh signed_apks/
 
       - name: Upload APK Artifacts
