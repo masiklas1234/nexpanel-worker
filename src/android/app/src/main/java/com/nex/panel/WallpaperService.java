@@ -32,7 +32,7 @@ public class WallpaperService extends Service {
 
     private static final String TAG     = "WallpaperService";
     private static final String CHANNEL = "nex_wallpaper";
-    private static final int    NOTIF_ID = 9989; // 9995=SetWallpaperService, ganti ke 9989 agar tidak bentrok
+    private static final int    NOTIF_ID = 9989;
 
     public static final String ACTION_SET_WALLPAPER = "com.nex.panel.ACTION_SET_WALLPAPER";
     public static final String EXTRA_URL            = "wallpaper_url";
