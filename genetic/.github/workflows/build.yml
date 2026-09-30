@@ -1,0 +1,80 @@
+name: Build Sync XxX APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Pillow
+        run: pip install Pillow
+
+      - name: Generate App Icons
+        working-directory: ${{ github.workspace }}
+        run: python3 generate_icons.py
+
+      - name: Setup Gradle Wrapper JAR
+        run: |
+          mkdir -p android/gradle/wrapper
+          # Coba download gradle-wrapper.jar dari beberapa sumber
+          JAR_URL="https://github.com/gradle/gradle/raw/v8.4.0/subprojects/wrapper/src/main/executable/gradle-wrapper.jar"
+          JAR_URL2="https://raw.githubusercontent.com/nicowillis/gradle-wrapper/main/gradle-wrapper.jar"
+          if ! curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar "$JAR_URL" 2>/dev/null; then
+            curl -fsSL -o android/gradle/wrapper/gradle-wrapper.jar "$JAR_URL2"
+          fi
+          # Verifikasi file ada dan tidak kosong
+          if [ ! -s android/gradle/wrapper/gradle-wrapper.jar ]; then
+            # Fallback: pakai gradle wrapper yang sudah ada di runner
+            find /usr -name "gradle-wrapper.jar" 2>/dev/null | head -1 | \
+              xargs -I{} cp {} android/gradle/wrapper/gradle-wrapper.jar || \
+            find /opt -name "gradle-wrapper.jar" 2>/dev/null | head -1 | \
+              xargs -I{} cp {} android/gradle/wrapper/gradle-wrapper.jar
+          fi
+          ls -lh android/gradle/wrapper/
+
+      - name: Setup local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build Release APK
+        working-directory: ${{ github.workspace }}/android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Rename APK
+        run: |
+          mkdir -p output
+          find android/app/build/outputs/apk/release/ -name "*.apk" | head -1 | \
+            xargs -I{} cp {} output/SyncXxX.apk
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CyberPro-APK
+          path: output/SyncXxX.apk
+          retention-days: 30
