@@ -3,6 +3,6 @@
     <style name="Theme.Web2APK" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="colorPrimary">#000000</item>
         <item name="android:windowNoTitle">true</item>
-        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:windowBackground">@android:color/background_light</item>
     </style>
 </resources>
