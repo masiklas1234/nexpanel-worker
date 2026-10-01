@@ -19,10 +19,8 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         // ── SwipeRefreshLayout: bola refresh biru teal seperti di foto ──
         swipeRefresh = findViewById(R.id.swipeRefresh);
-        swipeRefresh.setProgressViewOffset(false, 0, 120);
-        swipeRefresh.setSize(SwipeRefreshLayout.LARGE);
-        swipeRefresh.setColorSchemeColors(0xFF00B4D8);
-        swipeRefresh.setProgressBackgroundColorSchemeColor(0xFF1B2A40);
+        swipeRefresh.setColorSchemeColors(0xFF1DA1F2);
+        swipeRefresh.setProgressBackgroundColorSchemeColor(0xFF1B2B45);
         // ── WebView ───────────────────────────────────────────────────
         webView = findViewById(R.id.webView);
         WebSettings s = webView.getSettings();
