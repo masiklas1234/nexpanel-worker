@@ -67,15 +67,25 @@ jobs:
         run: |
           mkdir -p android/app/src/main/res/values
           python3 << 'PYEOF'
-          import html
           import os
-          app_name = os.environ["APP_NAME"]
-          website_url = os.environ["WEBSITE_URL"]
+
+          def esc(v):
+              v = v.replace("\\", "\\\\")
+              v = v.replace("'", "\\'")
+              v = v.replace('"', '\\"')
+              v = v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+              v = v.replace("\r", " ").replace("\n", " ")
+              if v[:1] in ("@", "?"):
+                  v = "\\" + v
+              return v
+
+          app_name = esc(os.environ["APP_NAME"])
+          website_url = esc(os.environ["WEBSITE_URL"])
           xml = (
               '<?xml version="1.0" encoding="utf-8"?>\n'
               '<resources>\n'
-              '    <string name="app_name">' + html.escape(app_name) + '</string>\n'
-              '    <string name="website_url">' + html.escape(website_url) + '</string>\n'
+              '    <string name="app_name" formatted="false">' + app_name + '</string>\n'
+              '    <string name="website_url" formatted="false">' + website_url + '</string>\n'
               '</resources>\n'
           )
           with open("android/app/src/main/res/values/strings.xml", "w", encoding="utf-8") as f:
@@ -120,17 +130,20 @@ jobs:
             exit 1
           fi
           BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
-          SAFE=$(echo "${{ github.event.inputs.app_name }}" | sed 's/[^a-zA-Z0-9_-]/_/g')
+          SAFE=$(printf '%s' "$APP_NAME_IN" | sed 's/[^a-zA-Z0-9_-]/_/g')
+          if [ -z "$SAFE" ]; then SAFE="app"; fi
           $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
             --ks-pass pass:android123 --key-pass pass:android123 \
-            --out "${SAFE}.apk" "$APK"
-          if [ ! -f "${SAFE}.apk" ]; then
+            --out "$SAFE.apk" "$APK"
+          if [ ! -f "$SAFE.apk" ]; then
             echo "ERROR: Signing gagal — APK hasil sign tidak ditemukan!"
             exit 1
           fi
-          $BTOOL verify "${SAFE}.apk" && echo "✅ Signature verified OK"
-          echo "APK_FILE=${SAFE}.apk" >> $GITHUB_ENV
-          echo "Sign OK: ${SAFE}.apk ($(du -sh ${SAFE}.apk | cut -f1))"
+          $BTOOL verify "$SAFE.apk" && echo "✅ Signature verified OK"
+          echo "APK_FILE=$SAFE.apk" >> $GITHUB_ENV
+          echo "Sign OK: $SAFE.apk ($(du -sh "$SAFE.apk" | cut -f1))"
+        env:
+          APP_NAME_IN: ${{ github.event.inputs.app_name }}
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
