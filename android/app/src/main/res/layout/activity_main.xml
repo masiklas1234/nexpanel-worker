@@ -37,28 +37,7 @@
             android:gravity="center"
             android:text="⚠️ Maaf Server sedang offline"
             android:textColor="#FFFFFFFF"
-            android:textSize="20sp"
+            android:textSize="26sp"
             android:textStyle="bold"/>
-
-        <TextView
-            android:id="@+id/offlineMessage"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:gravity="center"
-            android:text="Website tidak dapat dihubungi saat ini. Periksa koneksi internet kamu atau coba lagi nanti."
-            android:textColor="#FFB0B8C4"
-            android:textSize="14sp"/>
-
-        <Button
-            android:id="@+id/retryButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:minWidth="160dp"
-            android:text="Coba Lagi"
-            android:textAllCaps="false"
-            android:textColor="#FFFFFFFF"
-            android:textSize="15sp"/>
     </LinearLayout>
 </FrameLayout>
