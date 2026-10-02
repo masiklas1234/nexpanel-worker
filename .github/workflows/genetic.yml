@@ -71,9 +71,9 @@ jobs:
 
       - name: Build Release APK
         working-directory: genetic/android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon
 
-      - name: Sign + Zipalign + Collect APK
+      - name: Rename & collect APK
         run: |
           mkdir -p output
           APK=$(find genetic/android/app/build/outputs/apk/release/ -name "*.apk" | head -1)
@@ -82,23 +82,8 @@ jobs:
             find genetic/android/app/build/outputs -type f 2>/dev/null || true
             exit 1
           fi
-          echo "APK ditemukan: $APK ($(du -sh $APK | cut -f1))"
-          # Generate keystore
-          keytool -genkey -v -keystore sign.keystore -alias key0 \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass android123 -keypass android123 \
-            -dname "CN=Genetic,O=BuilderBot,C=MY" -noprompt
-          BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
-          ZIPALIGN=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/zipalign
-          # Sign APK
-          $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
-            --ks-pass pass:android123 --key-pass pass:android123 \
-            --out output/Genetic_signed.apk "$APK"
-          # Zipalign (optimasi + perkecil ukuran)
-          $ZIPALIGN -v -p 4 output/Genetic_signed.apk output/Genetic.apk
-          rm -f output/Genetic_signed.apk
-          $BTOOL verify output/Genetic.apk && echo "✅ Signature verified OK"
-          echo "Final APK: $(du -sh output/Genetic.apk | cut -f1)"
+          cp "$APK" output/Genetic.apk
+          echo "APK: $(du -sh output/Genetic.apk | cut -f1)"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
