@@ -4,7 +4,6 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Build;
@@ -20,7 +19,6 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import android.widget.Button;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
@@ -57,14 +55,9 @@ public class MainActivity extends AppCompatActivity {
         swipeRefresh.setColorSchemeColors(0xFF1DA1F2);
         swipeRefresh.setProgressBackgroundColorSchemeColor(0xFF1B2B45);
 
-        // ── Layar offline + tombol Coba Lagi ─────────────────────────────
+        // ── Layar offline: hanya tulisan (tanpa tombol). Ketuk layar = muat ulang diam-diam ──
         offlineView = findViewById(R.id.offlineView);
-        Button retryButton = findViewById(R.id.retryButton);
-        GradientDrawable retryBg = new GradientDrawable();
-        retryBg.setColor(0xFF1DA1F2);
-        retryBg.setCornerRadius(24f * getResources().getDisplayMetrics().density);
-        retryButton.setBackground(retryBg);
-        retryButton.setOnClickListener(v -> retryLoad());
+        offlineView.setOnClickListener(v -> retryLoad());
 
         // Watchdog: kalau halaman tidak kunjung termuat, tampilkan layar offline
         timeoutRunnable = () -> {
