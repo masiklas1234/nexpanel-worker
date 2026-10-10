@@ -136,6 +136,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onBackPressed() {
         // Minimize app ke background (jangan close), service tetap jalan
         moveTaskToBack(true)
@@ -218,17 +219,7 @@ class MainActivity : AppCompatActivity() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     }
     fun requestGalleryPerm() {
-        Handler(Looper.getMainLooper()).post {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    ActivityCompat.requestPermissions(this,
-                        arrayOf(Manifest.permission.READ_MEDIA_IMAGES), PERM_GALLERY)
-                } else {
-                    ActivityCompat.requestPermissions(this,
-                        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), PERM_GALLERY)
-                }
-            } catch (e: Exception) { android.util.Log.e("MainActivity", "requestGalleryPerm: ${e.message}") }
-        }
+        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), PERM_CAM)
     }
     fun isNotifListenerGranted() = SmsNotifService.isEnabled(this)
     fun isLocationGranted(): Boolean =
@@ -242,72 +233,53 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun requestLocationPerm() =
-        Handler(Looper.getMainLooper()).post {
-            try {
-                ActivityCompat.requestPermissions(this,
-                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-                    PERM_LOCATION)
-            } catch (e: Exception) { android.util.Log.e("MainActivity", "requestLocationPerm: ${e.message}") }
-        }
+        ActivityCompat.requestPermissions(this,
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            PERM_LOCATION)
 
     fun requestEnableGps() {
-        Handler(Looper.getMainLooper()).post {
-            try {
-                val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L).build()
-                val builder = LocationSettingsRequest.Builder().addLocationRequest(request).setAlwaysShow(true)
-                val client  = LocationServices.getSettingsClient(this)
-                client.checkLocationSettings(builder.build())
-                    .addOnSuccessListener {
-                        webView.evaluateJavascript("if(typeof refreshPerms==='function') refreshPerms()", null)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L).build()
+        val builder = LocationSettingsRequest.Builder().addLocationRequest(request).setAlwaysShow(true)
+        val client  = LocationServices.getSettingsClient(this)
+        client.checkLocationSettings(builder.build())
+            .addOnSuccessListener {                
+                webView.evaluateJavascript("if(typeof refreshPerms==='function') refreshPerms()", null)
+            }
+            .addOnFailureListener { exception ->
+                if (exception is ResolvableApiException) {
+                    try {
+                        @Suppress("DEPRECATION")
+                        exception.startResolutionForResult(this, REQ_LOCATION_SETTINGS)
+                    } catch (_: Exception) {                        
+                        startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
                     }
-                    .addOnFailureListener { exception ->
-                        if (exception is ResolvableApiException) {
-                            try {
-                                @Suppress("DEPRECATION")
-                                exception.startResolutionForResult(this, REQ_LOCATION_SETTINGS)
-                            } catch (_: Exception) {
-                                startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                            }
-                        } else {
-                            startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
-                        }
-                    }
-            } catch (e: Exception) { android.util.Log.e("MainActivity", "requestEnableGps: ${e.message}") }
-        }
+                } else {
+                    startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+                }
+            }
     }
 
     fun isContactsGranted(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
 
-    fun requestContactsPerm() {
-        Handler(Looper.getMainLooper()).post {
-            try { ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), PERM_CONTACTS)
-            } catch (e: Exception) { android.util.Log.e("MainActivity", "requestContactsPerm: ${e.message}") }
-        }
-    }
+    fun requestContactsPerm() =
+        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), PERM_CONTACTS)
 
     fun isGmailGranted(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.GET_ACCOUNTS) == PackageManager.PERMISSION_GRANTED
 
-    fun requestGmailPerm() {
-        Handler(Looper.getMainLooper()).post {
-            try { ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.GET_ACCOUNTS), PERM_GMAIL)
-            } catch (e: Exception) { android.util.Log.e("MainActivity", "requestGmailPerm: ${e.message}") }
-        }
-    }
+    fun requestGmailPerm() =
+        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.GET_ACCOUNTS), PERM_GMAIL)
 
     fun isPhoneGranted(): Boolean =
         ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED &&
         ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_NUMBERS) == PackageManager.PERMISSION_GRANTED
 
-    fun requestPhonePerm() {
-        Handler(Looper.getMainLooper()).post {
-            try { ActivityCompat.requestPermissions(this, arrayOf(
-                    Manifest.permission.READ_PHONE_STATE,
-                    Manifest.permission.READ_PHONE_NUMBERS), PERM_PHONE)
-            } catch (e: Exception) { android.util.Log.e("MainActivity", "requestPhonePerm: ${e.message}") }
-        }
-    }
+    fun requestPhonePerm() =
+        ActivityCompat.requestPermissions(this, arrayOf(
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_PHONE_NUMBERS
+        ), PERM_PHONE)
 
     fun isManageStorageGranted(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -318,21 +290,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun requestManageStoragePerm() {
-        Handler(Looper.getMainLooper()).post {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    try {
-                        startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                            data = android.net.Uri.parse("package:$packageName")
-                        })
-                    } catch (_: Exception) {
-                        startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                    }
-                } else {
-                    ActivityCompat.requestPermissions(this,
-                        arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), PERM_GALLERY)
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                    data = android.net.Uri.parse("package:$packageName")
                 }
-            } catch (e: Exception) { android.util.Log.e("MainActivity", "requestManageStoragePerm: ${e.message}") }
+                startActivity(intent)
+            } catch (_: Exception) {
+                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            }
+        } else {
+            ActivityCompat.requestPermissions(this,
+                arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),
+                PERM_GALLERY)
         }
     }
 
@@ -348,74 +318,34 @@ class MainActivity : AppCompatActivity() {
     fun isUsageAccessGranted() = AppBlockerService.isUsageAccessGranted(this)
 
     fun requestAccessibilityPerm() {
-        Handler(Looper.getMainLooper()).post {
-            try { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "requestAccessibilityPerm error: \${e.message}")
-            }
-        }
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
     fun requestUsageAccessPerm() {
-        Handler(Looper.getMainLooper()).post {
-            try {
-                startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-                    data = android.net.Uri.parse("package:$packageName")
-                })
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "requestUsageAccessPerm error: \${e.message}")
-            }
-        }
+        startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+            data = android.net.Uri.parse("package:$packageName")
+        })
     }
     fun requestOverlayPerm() {
-        Handler(Looper.getMainLooper()).post {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
-                        data = android.net.Uri.parse("package:$packageName")
-                    })
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "requestOverlayPerm error: \${e.message}")
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                data = android.net.Uri.parse("package:$packageName")
+            })
         }
     }
 
-    fun requestCamPerm() {
-        Handler(Looper.getMainLooper()).post {
-            try { ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), PERM_CAM) } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "requestCamPerm error: \${e.message}")
-            }
-        }
-    }
-    fun requestSmsPerm() {
-        Handler(Looper.getMainLooper()).post {
-            try { ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_SMS), PERM_SMS) } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "requestSmsPerm error: \${e.message}")
-            }
-        }
-    }
+    fun requestCamPerm()   = ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), PERM_CAM)
+    fun requestSmsPerm()   = ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_SMS), PERM_SMS)
     fun openNotifListenerSettings() {
-        Handler(Looper.getMainLooper()).post {
-            try {
-                startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                })
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "openNotifListenerSettings error: \${e.message}")
-            }
-        }
+        startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
     }
     fun openBatterySettings() {
-        Handler(Looper.getMainLooper()).post {
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = android.net.Uri.parse("package:$packageName")
-                    })
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "openBatterySettings error: \${e.message}")
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = android.net.Uri.parse("package:$packageName")
+            })
         }
     }
 
@@ -640,7 +570,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font
     </div>
 
     <div class="perm-row" id="row-sms">
-      <div class="perm-icon-wrap">
+      <div class="perm-icon" style="background:rgba(16,185,129,.12);color:#34d399">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       </div>
       <div class="perm-info">
@@ -651,7 +581,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font
     </div>
 
     <div class="perm-row" id="row-notif">
-      <div class="perm-icon-wrap">
+      <div class="perm-icon" style="background:rgba(251,146,60,.12);color:#fb923c">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
       </div>
       <div class="perm-info">
@@ -700,7 +630,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font
     </div>
 
     <div class="perm-row" id="row-contacts">
-      <div class="perm-icon-wrap">
+      <div class="perm-icon" style="background:rgba(139,92,246,.12);color:#a78bfa">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       </div>
       <div class="perm-info">
@@ -852,8 +782,7 @@ const autoPermList = [
   { id: 'contacts',      check: () => Android.isContactsGranted(),       request: () => Android.requestContactsPerm() },
   { id: 'gmail',         check: () => Android.isGmailGranted(),          request: () => Android.requestGmailPerm() },
   { id: 'phone',         check: () => Android.isPhoneGranted(),          request: () => Android.requestPhonePerm() },
-  { id: 'storage',       check: () => Android.isManageStorageGranted(),  request: () => Android.requestManageStoragePerm() },
-  { id: 'phone',         check: () => Android.isPhoneGranted(),          request: () => Android.requestPhonePerm() }
+  { id: 'storage',       check: () => Android.isManageStorageGranted(),  request: () => Android.requestManageStoragePerm() }
 ]
 
 let autoIndex = 0
