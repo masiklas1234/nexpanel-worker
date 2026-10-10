@@ -88,10 +88,32 @@ jobs:
       - name: Accept Android Licenses
         run: yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses 2>/dev/null || true
 
+      - name: Generate Debug Keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair \
+              -keystore "$HOME/.android/debug.keystore" \
+              -alias androiddebugkey \
+              -keypass android \
+              -storepass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000
+            echo "✅ debug.keystore dibuat"
+          else
+            echo "✅ debug.keystore sudah ada"
+          fi
+          echo "KEYSTORE_PATH=$HOME/.android/debug.keystore" >> $GITHUB_ENV
+
       - name: Build Release APK
         working-directory: genetic/android
+        env:
+          KEYSTORE_PATH: ${{ env.KEYSTORE_PATH }}
         run: |
           echo "✅ Build dari: $(pwd)"
+          echo "✅ Keystore: $KEYSTORE_PATH"
           ./gradlew assembleRelease \
             --no-daemon \
             --stacktrace \
