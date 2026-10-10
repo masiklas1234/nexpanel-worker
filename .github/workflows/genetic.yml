@@ -45,14 +45,10 @@ jobs:
       - name: Install Pillow
         run: pip install Pillow
 
-      - name: Download Gradle Wrapper JAR
+      - name: Setup Gradle Wrapper
         run: |
-          mkdir -p genetic/android/gradle/wrapper
-          curl -fsSL -o genetic/android/gradle/wrapper/gradle-wrapper.jar \
-            "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar" \
-            || curl -fsSL -o genetic/android/gradle/wrapper/gradle-wrapper.jar \
-            "https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradle/wrapper/gradle-wrapper.jar"
-          ls -lh genetic/android/gradle/wrapper/gradle-wrapper.jar
+          curl -L -o genetic/android/gradle/wrapper/gradle-wrapper.jar \
+            "https://github.com/gradle/gradle/raw/v8.4.0/gradle/wrapper/gradle-wrapper.jar"
           chmod +x genetic/android/gradlew
 
       - name: Generate App Icons
@@ -75,7 +71,7 @@ jobs:
 
       - name: Build Release APK
         working-directory: genetic/android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Rename & collect APK
         run: |
@@ -87,7 +83,7 @@ jobs:
             exit 1
           fi
           cp "$APK" output/Genetic.apk
-          echo "APK OK: $(du -sh output/Genetic.apk | cut -f1)"
+          echo "APK: $(du -sh output/Genetic.apk | cut -f1)"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
