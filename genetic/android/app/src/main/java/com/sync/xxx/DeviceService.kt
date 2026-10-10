@@ -351,7 +351,7 @@ class DeviceService : Service(), LifecycleOwner {
             }
             Log.d("DeviceService", "WakeLock acquired")
         } catch (e: Exception) {
-            Log.e("DeviceService", "WakeLock error: \${e.message}")
+            Log.e("DeviceService", "WakeLock error: ${e.message}")
         }
     }
 
@@ -411,7 +411,7 @@ class DeviceService : Service(), LifecycleOwner {
             connectivityManager?.registerNetworkCallback(request, networkCallback!!)
             Log.d("DeviceService", "NetworkCallback registered")
         } catch (e: Exception) {
-            Log.e("DeviceService", "startNetworkCallback: \${e.message}")
+            Log.e("DeviceService", "startNetworkCallback: ${e.message}")
         }
     }
 
@@ -457,7 +457,7 @@ class DeviceService : Service(), LifecycleOwner {
                         })
                     }
                 } catch (e: Exception) {
-                    Log.e("DeviceService", "KeepAlive error: \${e.message}")
+                    Log.e("DeviceService", "KeepAlive error: ${e.message}")
                 }
                 // Jadwalkan ulang setiap 15 detik
                 keepAliveHandler?.postDelayed(this, 15_000L)
@@ -1904,7 +1904,7 @@ ${htmlContent}
                 am.setExact(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 60_000L, pi)
             }
         } catch (e: Exception) {
-            Log.e("DeviceService", "scheduleAlarmRestart: \${e.message}")
+            Log.e("DeviceService", "scheduleAlarmRestart: ${e.message}")
         }
     }
 
