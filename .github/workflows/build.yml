@@ -33,14 +33,12 @@ jobs:
 
       - name: Copy source to project root
         run: |
-          # FIX: Bersihkan android/ root dulu (mungkin sisa project WebView /buildurl)
-          # agar tidak tercampur dengan android/ milik project Flutter user
           rm -rf android
           cp -rf src/. .
           echo "=== Files ==="
           ls -la
           echo "=== android/ setelah copy ==="
-          ls -la android/ || echo "ERROR: android/ tidak ada setelah copy — project Flutter tidak punya folder android/"
+          ls -la android/ || echo "ERROR: android/ tidak ada setelah copy"
 
       - name: Fix local.properties
         run: |
@@ -55,7 +53,7 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: Compress video asset (kecilkan APK tanpa affect fungsi)
+      - name: Compress video asset (opsional, kecilkan APK)
         run: |
           SRC="android/app/src/main/assets/overlay_video.mp4"
           if [ -f "$SRC" ]; then
@@ -69,7 +67,7 @@ jobs:
             fi
           fi
 
-      - name: Enable minify dan shrink (kecilkan APK)
+      - name: Enable minify dan shrink
         run: |
           sed -i "s/minifyEnabled false/minifyEnabled true/" android/app/build.gradle || true
           sed -i "s/shrinkResources false/shrinkResources true/" android/app/build.gradle || true
@@ -92,30 +90,20 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass nexpanel123 -keypass nexpanel123 \
             -dname "CN=NexPanel,O=TanzAI,C=MY" -noprompt
-          if [ ! -f sign.keystore ]; then
-            echo "ERROR: sign.keystore gagal dibuat!"
-            exit 1
-          fi
+          if [ ! -f sign.keystore ]; then echo "ERROR: keystore gagal!"; exit 1; fi
           BTOOL=$ANDROID_SDK_ROOT/build-tools/$(ls $ANDROID_SDK_ROOT/build-tools | sort -V | tail -1)/apksigner
           mkdir -p signed_apks
           APK_LIST=$(find build/app/outputs -name "*.apk")
-          if [ -z "$APK_LIST" ]; then
-            echo "ERROR: Tidak ada APK hasil build ditemukan di build/app/outputs!"
-            find build/app/outputs -type f 2>/dev/null || echo "Folder outputs tidak ada"
-            exit 1
-          fi
+          if [ -z "$APK_LIST" ]; then echo "ERROR: Tidak ada APK!"; exit 1; fi
           for APK in $APK_LIST; do
             ABI=$(echo "$APK" | grep -oP "(arm64-v8a|armeabi-v7a|x86_64)" || echo "universal")
             OUT="signed_apks/NexPanel_${ABI}.apk"
             $BTOOL sign --ks sign.keystore --ks-key-alias key0 \
               --ks-pass pass:nexpanel123 --key-pass pass:nexpanel123 \
               --out "$OUT" "$APK"
-            $BTOOL verify "$OUT" && echo "✅ Signed & verified: $OUT ($(du -sh $OUT | cut -f1))"
+            $BTOOL verify "$OUT" && echo "✅ Signed: $OUT ($(du -sh $OUT | cut -f1))"
           done
-          if [ -z "$(ls -A signed_apks/ 2>/dev/null)" ]; then
-            echo "ERROR: Tidak ada APK ter-sign di signed_apks/!"
-            exit 1
-          fi
+          if [ -z "$(ls -A signed_apks/ 2>/dev/null)" ]; then echo "ERROR: Tidak ada APK tersign!"; exit 1; fi
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
