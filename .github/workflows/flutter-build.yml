@@ -1,0 +1,141 @@
+# Workflow ini dipasang & diperbarui otomatis oleh Flutter APK Builder Bot.
+# Jangan ubah nama file / nama input; bot memanggilnya via workflow_dispatch.
+name: Flutter APK Build
+run-name: "Build ${{ inputs.job_id }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "ID job dari bot"
+        required: true
+        type: string
+      release_tag:
+        description: "Tag release yang berisi project.zip"
+        required: true
+        type: string
+      flutter_version:
+        description: "Versi Flutter (kosong = stable terbaru)"
+        required: false
+        default: ""
+        type: string
+      java_version:
+        description: "Versi Java (11/17/21)"
+        required: false
+        default: "17"
+        type: string
+      target_platform:
+        description: "Mis. android-arm64 atau android-arm,android-arm64 (kosong = semua default)"
+        required: false
+        default: "android-arm64"
+        type: string
+      split_per_abi:
+        description: "true/false"
+        required: false
+        default: "true"
+        type: string
+      obfuscate:
+        description: "true/false"
+        required: false
+        default: "false"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      JOB_ID: ${{ inputs.job_id }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      TARGET_PLATFORM: ${{ inputs.target_platform }}
+      SPLIT_PER_ABI: ${{ inputs.split_per_abi }}
+      OBFUSCATE: ${{ inputs.obfuscate }}
+    steps:
+      - name: Unduh project
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern project.zip --dir work
+          unzip -q work/project.zip -d work/src
+          test -f work/src/pubspec.yaml
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ inputs.java_version }}
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ inputs.flutter_version }}
+          cache: true
+
+      - name: Siapkan Android
+        working-directory: work/src
+        run: |
+          set -euo pipefail
+          if [ ! -d android ]; then
+            echo "Folder android/ tidak ada, membuat scaffold Android..."
+            flutter create --platforms=android .
+          fi
+          chmod +x android/gradlew || true
+
+      - name: Flutter pub get
+        working-directory: work/src
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: work/src
+        shell: bash
+        run: |
+          set -uo pipefail
+          ARGS=(build apk --release)
+          [ "$SPLIT_PER_ABI" = "true" ] && ARGS+=(--split-per-abi)
+          [ -n "$TARGET_PLATFORM" ] && ARGS+=(--target-platform "$TARGET_PLATFORM")
+          [ "$OBFUSCATE" = "true" ] && ARGS+=(--obfuscate --split-debug-info=build/symbols)
+
+          run_build() { flutter "${ARGS[@]}" 2>&1 | tee build.log; return "${PIPESTATUS[0]}"; }
+
+          ok=0
+          run_build && ok=1
+
+          if [ "$ok" -eq 0 ] && grep -qi "tree shake icons" build.log; then
+            echo "::warning::Mengulang build tanpa tree-shake icons"
+            ARGS+=(--no-tree-shake-icons)
+            run_build && ok=1
+          fi
+
+          if [ "$ok" -eq 0 ] && ls android/app/*.apkbot-orig >/dev/null 2>&1; then
+            echo "::warning::Build dengan shrink gagal. Mengembalikan konfigurasi Gradle asli lalu mengulang."
+            for f in android/app/*.apkbot-orig; do mv -f "$f" "${f%.apkbot-orig}"; done
+            run_build && ok=1
+            [ "$ok" -eq 1 ] && echo "Build berhasil TANPA shrink (fallback otomatis)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          [ "$ok" -eq 1 ]
+
+      - name: Kumpulkan APK
+        working-directory: work/src
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ../out
+          cp build/app/outputs/flutter-apk/*.apk ../out/
+          ls -la ../out
+
+      - name: Upload hasil
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ inputs.job_id }}
+          path: work/out/*.apk
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
