@@ -1,0 +1,44 @@
+name: zarr_chat
+description: ZARR CHAT - aplikasi chatting real-time (klien Flutter untuk backend ZARR CHAT).
+publish_to: "none"
+version: 1.5.0+8
+
+environment:
+  # Minimal Dart 3.5 (Flutter 3.24+): firebase_messaging_web & plugin lain menolak Dart 3.3, dan
+  # nilai ini dipakai builder untuk memilih versi Flutter pertama yang dicoba (3.24.5).
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  http: ^1.2.0
+  socket_io_client: ^2.0.3+1
+  shared_preferences: ^2.2.0
+  path_provider: ^2.1.0
+  cached_network_image: ^3.3.0
+  flutter_cache_manager: ^3.3.0
+  image_picker: ^1.0.7
+  file_picker: ">=8.0.0 <11.0.0"
+  record: ">=5.1.0 <7.0.0"
+  audioplayers: ">=5.2.0 <7.0.0"
+  just_audio: ^0.9.40
+  just_audio_background: ^0.0.1-beta.13
+  video_player: ^2.8.0
+  flutter_webrtc: ">=0.11.0 <0.13.0"
+  geolocator: ">=11.0.0 <15.0.0"
+  url_launcher: ^6.2.0
+  open_filex: ^4.3.4
+  # Notifikasi: push FCM (pesan, telepon, broadcast saat aplikasi ditutup) + notifikasi lokal.
+  firebase_core: ^3.8.1
+  firebase_messaging: ^15.1.6
+  flutter_local_notifications: ^18.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/logo.png
+    - assets/images/splash.png
+    - assets/images/meta_ai.png
+    - assets/wallpapers/
+    - assets/audio/
